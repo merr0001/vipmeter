@@ -256,17 +256,27 @@ class SpecScreen extends MainActivity.Screen {
         sv.addView(body);
         List<Store.Spec> specs = Store.specs(a);
         List<EditText[]> fields = new ArrayList<>();
+        LinearLayout list = U.col(c);
+        body.addView(list, U.match());
         for (Store.Spec sp : specs) {
             LinearLayout r = U.row(c);
-            EditText name = edit(c, sp.name, false, 140);
-            EditText t = edit(c, U.f1(sp.target), true, 70);
-            EditText tol = edit(c, U.f1(sp.tol), true, 56);
+            EditText name = edit(c, sp.name, false, 118);
+            EditText t = edit(c, U.f1(sp.target), true, 62);
+            EditText tol = edit(c, U.f1(sp.tol), true, 48);
+            EditText[] f = {name, t, tol};
             r.addView(name);
             r.addView(t);
             r.addView(U.tv(c, "±", 15, U.SUB, U.MONO_B));
             r.addView(tol);
-            body.addView(r, U.match());
-            fields.add(new EditText[]{name, t, tol});
+            View gap = new View(c);
+            r.addView(gap, U.lpW(1));
+            TextView up = moveBtn(c, "▲"), down = moveBtn(c, "▼");
+            up.setOnClickListener(v -> move(list, fields, f, -1));
+            down.setOnClickListener(v -> move(list, fields, f, 1));
+            r.addView(up);
+            r.addView(down);
+            list.addView(r, U.match());
+            fields.add(f);
         }
         LinearLayout add = U.row(c);
         EditText nn = edit(c, "", false, 140);
@@ -276,7 +286,7 @@ class SpecScreen extends MainActivity.Screen {
         add.addView(nn);
         add.addView(nt);
         body.addView(add, U.match());
-        TextView tip = U.tv(c, "이름을 지우면 그 스펙이 삭제됩니다", 11.5f, U.SUB, null);
+        TextView tip = U.tv(c, "▲▼ 로 순서 이동 · 이름을 지우면 그 스펙이 삭제됩니다", 11.5f, U.SUB, null);
         tip.setPadding(U.dp(c, 4), U.dp(c, 6), 0, 0);
         body.addView(tip);
         s.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -305,6 +315,27 @@ class SpecScreen extends MainActivity.Screen {
         });
         s.addView(save, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(c, 52)), c, 0, 10, 0, 0));
         a.showSheet(s, null);
+    }
+
+    private TextView moveBtn(Context c, String t) {
+        TextView b = U.tv(c, t, 13, U.INK, U.BOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setBackground(U.box(c, U.ENAMEL, 6, U.INK, 1.5f));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(U.dp(c, 34), U.dp(c, 34));
+        p.leftMargin = U.dp(c, 4);
+        b.setLayoutParams(p);
+        return b;
+    }
+
+    /** 줄 순서 바꾸기 (입력 중인 글자는 그대로) */
+    private void move(LinearLayout list, List<EditText[]> fields, EditText[] f, int dir) {
+        int i = fields.indexOf(f), j = i + dir;
+        if (i < 0 || j < 0 || j >= fields.size()) return;
+        View row = list.getChildAt(i);
+        list.removeViewAt(i);
+        list.addView(row, j);
+        fields.remove(i);
+        fields.add(j, f);
     }
 
     private EditText edit(Context c, String text, boolean number, int widthDp) {
