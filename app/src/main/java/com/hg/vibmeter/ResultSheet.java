@@ -65,7 +65,7 @@ final class ResultSheet {
         int rounds = m.planActive ? m.doneRounds : 0;
         int minutes = m.planActive ? m.doneRounds * m.roundMin : 0;
 
-        LinearLayout s = a.sheetBox(unit + "호기 " + (m.spec.isEmpty() ? "" : m.spec) + " 결과", "판 완료 · 반출");
+        LinearLayout s = a.sheetBox(unit + "호기 " + (m.spec.isEmpty() ? "" : m.spec) + " 결과", "작업 완료 · 반출");
         ScrollView sv = new ScrollView(a);
         LinearLayout body = U.col(a);
         sv.addView(body);

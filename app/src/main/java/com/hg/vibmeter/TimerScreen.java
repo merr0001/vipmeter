@@ -416,7 +416,7 @@ class TimerScreen extends MainActivity.Screen {
                 r.addView(plus, new LinearLayout.LayoutParams(U.dp(a, 38), U.dp(a, 34)));
                 plan.addView(r, U.margins(U.match(), a, 0, 3, 0, 3));
             }
-            TextView go = U.button(a, "판 시작 (1회차 바로 시작)", 2, x -> {
+            TextView go = U.button(a, "작업 시작 (1회차 바로 시작)", 2, x -> {
                 Store.putInt(a, "planN", v[0]); Store.putInt(a, "roundMin", v[1]);
                 TimerCenter.startPlan(a, unit, v[0], v[1]);
                 a.closeSheet();
@@ -450,7 +450,7 @@ class TimerScreen extends MainActivity.Screen {
         }
         LinearLayout r = U.row(a);
         action(r, "결과 입력", U.INK, x -> { a.closeSheet(); ResultSheet.show(a, unit); });
-        action(r, "판 끝내기", U.BAD, x -> { TimerCenter.endPlan(a, unit); planSig = -1; tick(); });
+        action(r, "작업 끝내기", U.BAD, x -> { TimerCenter.endPlan(a, unit); planSig = -1; tick(); });
         plan.addView(r, U.margins(U.match(), a, -3, 4, -3, 0));
     }
 
@@ -493,10 +493,10 @@ class TimerScreen extends MainActivity.Screen {
             exitMulti();
         }), U.match());
         LinearLayout acts = U.row(a);
-        action(acts, "판 시작", U.INK, v -> {
+        action(acts, "작업 시작", U.INK, v -> {
             int pa = Store.getInt(a, "planN", 5), rm = Store.getInt(a, "roundMin", 20);
             for (int u : sel) TimerCenter.startPlan(a, u, pa, rm);
-            Toast.makeText(a, sel.size() + "대 판 시작 (" + pa + "회 × " + rm + "분)", Toast.LENGTH_LONG).show();
+            Toast.makeText(a, sel.size() + "대 작업 시작 (" + pa + "회 × " + rm + "분)", Toast.LENGTH_LONG).show();
             exitMulti();
         });
         action(acts, "멈춤/계속", U.INK, v -> {
@@ -511,7 +511,7 @@ class TimerScreen extends MainActivity.Screen {
         action(acts, "선택 해제", U.INK, v -> exitMulti());
         action(acts, "선택 정지", U.BAD, v -> { for (int u : sel) TimerCenter.stop(a, u); exitMulti(); });
         s.addView(acts, U.match());
-        TextView tip = U.tv(a, "다른 호기를 탭하면 추가·해제 · 판 시작은 마지막에 쓴 계획 사용", 11.5f, U.SUB, null);
+        TextView tip = U.tv(a, "다른 호기를 탭하면 추가·해제 · 작업 시작은 마지막에 쓴 계획 사용", 11.5f, U.SUB, null);
         tip.setPadding(U.dp(a, 4), U.dp(a, 8), 0, 0);
         s.addView(tip);
         sheetRefresh = null;
