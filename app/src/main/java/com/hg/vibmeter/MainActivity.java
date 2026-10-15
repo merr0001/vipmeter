@@ -52,6 +52,8 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final int CAP = 8192;
     private static final double FIX_LIMIT = 20.0;     // X·Y 가 Z 의 20% 이하이면 고정 양호
     private static final double STABLE_LIMIT = 0.05;  // 최근 값들이 ±5% 안이면 안정
+    private static final double MIN_ZRMS = 3.0;       // 이보다 약하면 설비 진동이 아님 (실측 최저 약 11 m/s²)
+    private static final double MIN_PROM = 8.0;       // FFT 봉우리가 주변 평균의 8배 이상이어야 뚜렷한 진동
     private static final String HEADER =
             "일시,호기,스펙,설정주파수(Hz),실측주파수(Hz),진동속도RMS(mm/s),피크(cm/s),Z RMS(m/s2),X/Z(%),Y/Z(%),샘플속도(Hz),메모\n";
 
@@ -240,6 +242,22 @@ public class MainActivity extends Activity implements SensorEventListener {
         Analyzer.Result r = Analyzer.analyze(t, x, y, z, n);
         last = r;
         if (!r.valid) return;
+
+        boolean vib = r.rmsZ >= MIN_ZRMS && r.prominence >= MIN_PROM;
+        if (!vib) {
+            last = null;  // 저장 막기
+            recent.clear();
+            tvVel.setText("--");
+            tvFreq.setText("실측 주파수  -- Hz");
+            tvZ.setText(String.format(Locale.US, "Z RMS 가속도  %.2f m/s²", r.rmsZ));
+            tvPeak.setText("참고 피크  -- cm/s");
+            tvFix.setText("고정 상태  -- (진동이 있어야 판단)");
+            tvFix.setTextColor(Color.rgb(154, 167, 161));
+            tvFs.setText(String.format(Locale.US, "샘플 속도  %.0f Hz (최근 %.1f초)", r.fs, have));
+            tvStatus.setText("설비 진동이 감지되지 않습니다\n진동기 위 십자 가운데에 고정하세요");
+            tvStatus.setTextColor(Color.rgb(154, 167, 161));
+            return;
+        }
 
         tvVel.setText(String.format(Locale.US, "%.1f", r.vRms));
         tvFreq.setText(String.format(Locale.US, "실측 주파수  %.2f Hz", r.freq));

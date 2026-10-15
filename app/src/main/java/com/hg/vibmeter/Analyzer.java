@@ -22,6 +22,7 @@ public final class Analyzer {
         public double vPeak;    // cm/s
         public double pctX, pctY;
         public boolean valid;
+        public double prominence; // 봉우리 크기 ÷ 주변 평균 (진동이 뚜렷한지)
     }
 
     private Analyzer() {}
@@ -39,7 +40,9 @@ public final class Analyzer {
         r.rmsY = std(y, n);
         r.rmsZ = std(z, n);
 
-        r.freq = peakFrequency(t, z, n, r.fs);
+        double[] pk = peakFrequency(t, z, n, r.fs);
+        r.freq = pk[0];
+        r.prominence = pk[1];
         if (r.freq > 0 && r.rmsZ > 0) {
             r.vRms = K_RMS_MM * r.rmsZ / r.freq;
             r.vPeak = K_PEAK_CM * r.rmsZ / r.freq;
@@ -65,7 +68,7 @@ public final class Analyzer {
     }
 
     /** 고르지 않은 샘플 간격을 일정 간격으로 다시 맞춘 뒤 FFT 봉우리 주파수 */
-    static double peakFrequency(long[] t, float[] z, int n, double fs) {
+    static double[] peakFrequency(long[] t, float[] z, int n, double fs) {
         // 1) 일정 간격 재샘플 (선형 보간)
         int m = n;
         double dt = 1.0 / fs;
@@ -103,13 +106,16 @@ public final class Analyzer {
         double[] mag = new double[N / 2];
         for (int k = 1; k < N / 2; k++) mag[k] = Math.hypot(re[k], im[k]);
         for (int k = k0; k <= k1; k++) if (mag[k] > best) { best = mag[k]; kb = k; }
-        if (kb < 1) return 0;
+        if (kb < 1) return new double[]{0, 0};
+        double sum = 0; int cnt = 0;
+        for (int k = k0; k <= k1; k++) { sum += mag[k]; cnt++; }
+        double prom = cnt > 0 && sum > 0 ? best / (sum / cnt) : 0;
         // 4) 포물선 보간
         double a = mag[kb - 1], b = mag[kb], c = mag[kb + 1];
         double den = a - 2 * b + c;
         double p = den != 0 ? 0.5 * (a - c) / den : 0;
         if (p > 0.5) p = 0.5; if (p < -0.5) p = -0.5;
-        return (kb + p) * df;
+        return new double[]{(kb + p) * df, prom};
     }
 
     /** 제자리 radix-2 FFT (길이는 2의 거듭제곱) */
