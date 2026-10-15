@@ -67,15 +67,13 @@ public final class Store {
         public String finishMsg = "";
         // 가공 계획
         public boolean planActive;
-        public int planA = 3, planB = 2, roundMin = 20;
+        public int planA = 5, roundMin = 20;   // 가공 횟수, 1회 시간
         public int doneRounds;
-        public boolean swapped;
         public long planStart;
         public List<String> log = new ArrayList<>();
 
         public boolean running(long now) { return endAt > 0 && endAt > now; }
-        public int planTotal() { return planA + planB; }
-        public boolean swapDue() { return planActive && !swapped && planB > 0 && doneRounds >= planA; }
+        public int planTotal() { return planA; }
         public boolean planDone() { return planActive && doneRounds >= planTotal(); }
     }
 
@@ -97,11 +95,9 @@ public final class Store {
             m.finished = o.optBoolean("finished", false);
             m.finishMsg = o.optString("finishMsg", "");
             m.planActive = o.optBoolean("planActive", false);
-            m.planA = o.optInt("planA", 3);
-            m.planB = o.optInt("planB", 2);
+            m.planA = o.optInt("planA", 5);
             m.roundMin = o.optInt("roundMin", 20);
             m.doneRounds = o.optInt("doneRounds", 0);
-            m.swapped = o.optBoolean("swapped", false);
             m.planStart = o.optLong("planStart", 0);
             JSONArray a = o.optJSONArray("log");
             if (a != null) for (int i = 0; i < a.length(); i++) m.log.add(a.optString(i));
@@ -121,10 +117,8 @@ public final class Store {
             o.put("finishMsg", m.finishMsg);
             o.put("planActive", m.planActive);
             o.put("planA", m.planA);
-            o.put("planB", m.planB);
             o.put("roundMin", m.roundMin);
             o.put("doneRounds", m.doneRounds);
-            o.put("swapped", m.swapped);
             o.put("planStart", m.planStart);
             o.put("log", new JSONArray(m.log));
             sp(c).edit().putString("m" + m.unit, o.toString()).commit();
@@ -300,7 +294,103 @@ public final class Store {
         return best;
     }
 
-    // ---------------- 처음 실행 시 실제 측정 기록 넣기 ----------------
+    // ---------------- 회차 기록 (인수인계 자동 채움용) ----------------
+    public static final class Round { public int unit; public String spec = ""; public long start, end; }
+
+    public static synchronized List<Round> rounds(Context c) {
+        JSONArray a = readArr(c, "rounds.json");
+        List<Round> l = new ArrayList<>();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null) continue;
+            Round r = new Round();
+            r.unit = o.optInt("unit"); r.spec = o.optString("spec", ""); r.start = o.optLong("start"); r.end = o.optLong("end");
+            l.add(r);
+        }
+        return l;
+    }
+
+    public static synchronized void addRound(Context c, int unit, String spec, long start, long end) {
+        JSONArray a = readArr(c, "rounds.json");
+        try {
+            JSONObject o = new JSONObject();
+            o.put("unit", unit); o.put("spec", spec == null ? "" : spec); o.put("start", start); o.put("end", end);
+            a.put(o);
+        } catch (Exception ignored) {}
+        writeArr(c, "rounds.json", a);
+    }
+
+    // ---------------- 인수인계 ----------------
+    public static final class HandRow { public String unit = "", spec = "", count = ""; }
+
+    public static final class Handover {
+        public long id;            // 처음 저장한 시각 (고유 번호)
+        public String date = "";   // 근무 시작 날짜 yyyy-MM-dd
+        public String shift = "야간";
+        public long savedAt;
+        public String author = "";
+        public List<HandRow> rows = new ArrayList<>();
+        public String memo = "";
+    }
+
+    public static synchronized List<Handover> handovers(Context c) {
+        JSONArray a = readArr(c, "handovers.json");
+        List<Handover> l = new ArrayList<>();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null) continue;
+            Handover h = new Handover();
+            h.id = o.optLong("id"); h.date = o.optString("date"); h.shift = o.optString("shift", "야간");
+            h.savedAt = o.optLong("savedAt"); h.author = o.optString("author", ""); h.memo = o.optString("memo", "");
+            JSONArray rs = o.optJSONArray("rows");
+            if (rs != null) for (int k = 0; k < rs.length(); k++) {
+                JSONObject ro = rs.optJSONObject(k);
+                if (ro == null) continue;
+                HandRow r = new HandRow();
+                r.unit = ro.optString("unit"); r.spec = ro.optString("spec"); r.count = ro.optString("count");
+                h.rows.add(r);
+            }
+            l.add(h);
+        }
+        return l;
+    }
+
+    public static synchronized void saveHandovers(Context c, List<Handover> l) {
+        JSONArray a = new JSONArray();
+        try {
+            for (Handover h : l) {
+                JSONObject o = new JSONObject();
+                o.put("id", h.id); o.put("date", h.date); o.put("shift", h.shift);
+                o.put("savedAt", h.savedAt); o.put("author", h.author); o.put("memo", h.memo);
+                JSONArray rs = new JSONArray();
+                for (HandRow r : h.rows) {
+                    JSONObject ro = new JSONObject();
+                    ro.put("unit", r.unit); ro.put("spec", r.spec); ro.put("count", r.count);
+                    rs.put(ro);
+                }
+                o.put("rows", rs);
+                a.put(o);
+            }
+        } catch (Exception ignored) {}
+        writeArr(c, "handovers.json", a);
+    }
+
+    /** 같은 id 가 있으면 바꾸고 없으면 추가 */
+    public static void putHandover(Context c, Handover h) {
+        List<Handover> l = handovers(c);
+        boolean done = false;
+        for (int i = 0; i < l.size(); i++) if (l.get(i).id == h.id) { l.set(i, h); done = true; }
+        if (!done) l.add(h);
+        saveHandovers(c, l);
+    }
+
+    public static void deleteHandover(Context c, long id) {
+        List<Handover> l = handovers(c);
+        l.removeIf(h -> h.id == id);
+        saveHandovers(c, l);
+    }
+
+    /** 처음 실행 시 실제 측정 기록 넣기 */
     private static long t(int month, int day, int h, int min) {
         Calendar c = Calendar.getInstance();
         c.set(2026, month - 1, day, h, min, 0);
@@ -345,11 +435,11 @@ public final class Store {
         rs.add(a);
         Result b = new Result();
         b.time = t(10, 15, 16, 12); b.unit = 8; b.spec = "90-30 R"; b.setHz = 69.4; b.vRms = 48.8;
-        b.rounds = 5; b.minutes = 100; b.rShape = "양호"; b.memo = s + " · 3회+좌우 2회";
+        b.rounds = 5; b.minutes = 100; b.rShape = "양호"; b.memo = s + " · 5회";
         rs.add(b);
         Result d = new Result();
         d.time = t(10, 15, 16, 14); d.unit = 1; d.spec = "90-30 R"; d.setHz = 79.8; d.vRms = 50.2;
-        d.rounds = 4; d.minutes = 95; d.rShape = "양호"; d.memo = s + " · 3회+좌우 1회+15분";
+        d.rounds = 4; d.minutes = 95; d.rShape = "양호"; d.memo = s + " · 4회 + 15분";
         rs.add(d);
         saveResults(c, rs);
 

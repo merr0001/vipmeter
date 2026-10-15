@@ -98,8 +98,7 @@ class TimerScreen extends MainActivity.Screen {
             } else {
                 setBackground(U.dashed(c, U.PLATE, 7, U.DASH));
                 fg = U.INK; sub = Color.rgb(0x8b, 0x96, 0x8c);
-                if (m.planActive && m.swapDue()) st.setText("좌우 대기");
-                else if (m.planActive && !m.planDone()) st.setText((m.doneRounds) + "/" + m.planTotal() + "회");
+                if (m.planActive && !m.planDone()) st.setText((m.doneRounds) + "/" + m.planTotal() + "회");
                 else st.setText("대기");
                 time.setText("— : —");
                 time.setTextSize(15);
@@ -127,7 +126,6 @@ class TimerScreen extends MainActivity.Screen {
     }
 
     static String roundLabel(Store.Machine m) {
-        if (m.swapped) return "좌우 " + (m.doneRounds - m.planA + 1) + "회";
         return (m.doneRounds + 1) + "회";
     }
 
@@ -366,41 +364,40 @@ class TimerScreen extends MainActivity.Screen {
     private int planSig = -1;
 
     private void renderPlan(LinearLayout plan, Store.Machine m) {
-        int sig = (m.planActive ? 1 : 0) * 100000 + m.doneRounds * 1000 + (m.swapped ? 100 : 0) + (m.endAt > 0 ? 10 : 0) + m.planA * 3 + m.planB;
+        int sig = (m.planActive ? 1 : 0) * 100000 + m.doneRounds * 1000 + (m.planA * 7) + (m.endAt > 0 ? 10 : 0);
         if (sig == planSig && plan.getChildCount() > 0) return;
         planSig = sig;
         plan.removeAllViews();
         int unit = m.unit;
         if (!m.planActive) {
             plan.addView(U.sectionTitle(a, "가공 계획 (회차 타이머)"));
-            int[] v = {Store.getInt(a, "planA", 3), Store.getInt(a, "planB", 2), Store.getInt(a, "roundMin", 20)};
-            String[] names = {"교체 전", "좌우 교체 후", "1회 시간"};
-            String[] units = {"회", "회", "분"};
-            for (int i = 0; i < 3; i++) {
+            int[] v = {Store.getInt(a, "planN", 5), Store.getInt(a, "roundMin", 20)};
+            String[] names = {"가공 횟수", "1회 시간"};
+            String[] units = {"회", "분"};
+            for (int i = 0; i < 2; i++) {
                 final int k = i;
                 LinearLayout r = U.row(a);
                 r.addView(U.tv(a, names[i], 14, U.INK, U.BOLD), U.lpW(1));
                 TextView val = U.tv(a, v[i] + units[i], 17, U.INK, U.MONO_B);
                 val.setGravity(Gravity.CENTER);
                 TextView minus = stepBtn("−"), plus = stepBtn("+");
-                minus.setOnClickListener(x -> { v[k] = Math.max(k == 2 ? 1 : 0, v[k] - (k == 2 ? 5 : 1)); val.setText(v[k] + units[k]); });
-                plus.setOnClickListener(x -> { v[k] = Math.min(k == 2 ? 120 : 20, v[k] + (k == 2 ? 5 : 1)); val.setText(v[k] + units[k]); });
+                minus.setOnClickListener(x -> { v[k] = Math.max(1, v[k] - (k == 1 ? 5 : 1)); val.setText(v[k] + units[k]); });
+                plus.setOnClickListener(x -> { v[k] = Math.min(k == 1 ? 120 : 30, v[k] + (k == 1 ? 5 : 1)); val.setText(v[k] + units[k]); });
                 r.addView(minus, new LinearLayout.LayoutParams(U.dp(a, 38), U.dp(a, 34)));
                 r.addView(val, new LinearLayout.LayoutParams(U.dp(a, 64), ViewGroup.LayoutParams.WRAP_CONTENT));
                 r.addView(plus, new LinearLayout.LayoutParams(U.dp(a, 38), U.dp(a, 34)));
                 plan.addView(r, U.margins(U.match(), a, 0, 3, 0, 3));
             }
             TextView go = U.button(a, "판 시작 (1회차 바로 시작)", 2, x -> {
-                if (v[0] + v[1] < 1) return;
-                Store.putInt(a, "planA", v[0]); Store.putInt(a, "planB", v[1]); Store.putInt(a, "roundMin", v[2]);
-                TimerCenter.startPlan(a, unit, v[0], v[1], v[2]);
+                Store.putInt(a, "planN", v[0]); Store.putInt(a, "roundMin", v[1]);
+                TimerCenter.startPlan(a, unit, v[0], v[1]);
                 a.closeSheet();
                 tick();
             });
             plan.addView(go, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 48)), a, 0, 8, 0, 0));
             return;
         }
-        plan.addView(U.sectionTitle(a, "가공 계획 · " + m.planA + "회 + 좌우 " + m.planB + "회 · " + m.roundMin + "분"));
+        plan.addView(U.sectionTitle(a, "가공 계획 · " + m.planA + "회 × " + m.roundMin + "분"));
         plan.addView(roundsRow(m), U.match());
         int total = m.planTotal() * m.roundMin, doneMin = m.doneRounds * m.roundMin;
         plan.addView(U.tv(a, "누적 " + doneMin + " / " + total + "분", 13, U.SUB, U.MONO), U.margins(U.match(), a, 0, 8, 0, 4));
@@ -413,7 +410,6 @@ class TimerScreen extends MainActivity.Screen {
         if (!run) {
             String label = null;
             if (m.planDone()) label = "가공 결과 입력";
-            else if (m.swapDue()) label = "좌우 바꿨음 · 다음 회차 시작";
             else label = "다음 회차 시작";
             final boolean done = m.planDone();
             TextView b = U.button(a, label, 0, x -> {
@@ -441,13 +437,7 @@ class TimerScreen extends MainActivity.Screen {
         LinearLayout r = U.row(a);
         boolean run = m.endAt > System.currentTimeMillis();
         for (int i = 1; i <= m.planTotal(); i++) {
-            if (i == m.planA + 1 && m.planB > 0) {
-                TextView sw = U.tv(a, m.swapped ? "교체✓" : "교체", 10.5f, m.swapped ? U.OK : U.SIGNAL, U.BOLD);
-                sw.setGravity(Gravity.CENTER);
-                sw.setPadding(U.dp(a, 5), 0, U.dp(a, 5), 0);
-                r.addView(sw, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, U.dp(a, 40)));
-            }
-            String label = i <= m.planA ? String.valueOf(i) : "좌" + (i - m.planA);
+            String label = String.valueOf(i);
             TextView b = U.tv(a, label, 13, U.INK, U.MONO_B);
             b.setGravity(Gravity.CENTER);
             if (i <= m.doneRounds) { b.setBackground(U.box(a, U.INK, 6, U.INK, 0)); b.setTextColor(U.PLATE); }
@@ -476,9 +466,9 @@ class TimerScreen extends MainActivity.Screen {
         }), U.match());
         LinearLayout acts = U.row(a);
         action(acts, "판 시작", U.INK, v -> {
-            int pa = Store.getInt(a, "planA", 3), pb = Store.getInt(a, "planB", 2), rm = Store.getInt(a, "roundMin", 20);
-            for (int u : sel) TimerCenter.startPlan(a, u, pa, pb, rm);
-            Toast.makeText(a, sel.size() + "대 판 시작 (" + pa + "회 + 좌우 " + pb + "회 · " + rm + "분)", Toast.LENGTH_LONG).show();
+            int pa = Store.getInt(a, "planN", 5), rm = Store.getInt(a, "roundMin", 20);
+            for (int u : sel) TimerCenter.startPlan(a, u, pa, rm);
+            Toast.makeText(a, sel.size() + "대 판 시작 (" + pa + "회 × " + rm + "분)", Toast.LENGTH_LONG).show();
             exitMulti();
         });
         action(acts, "선택 해제", U.INK, v -> exitMulti());

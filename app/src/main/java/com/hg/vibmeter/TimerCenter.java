@@ -62,25 +62,21 @@ public final class TimerCenter {
     }
 
     /** 가공 계획 시작 (회차 0부터) */
-    public static void startPlan(Context c, int unit, int a, int b, int roundMin) {
+    public static void startPlan(Context c, int unit, int a, int roundMin) {
         Store.Machine m = Store.machine(c, unit);
         m.planActive = true;
-        m.planA = a; m.planB = b; m.roundMin = roundMin;
-        m.doneRounds = 0; m.swapped = false;
+        m.planA = a; m.roundMin = roundMin;
+        m.doneRounds = 0;
         m.planStart = System.currentTimeMillis();
         m.log.clear();
         Store.save(c, m);
         startRound(c, unit);
     }
 
-    /** 다음 회차 시작 (좌우 교체가 필요한 차례면 교체한 것으로 처리) */
+    /** 다음 회차 시작 */
     public static void startRound(Context c, int unit) {
         Store.Machine m = Store.machine(c, unit);
         if (!m.planActive || m.planDone()) return;
-        if (m.swapDue()) {
-            m.swapped = true;
-            m.log.add("좌우 교체 " + hm(System.currentTimeMillis()));
-        }
         m.endAt = System.currentTimeMillis() + m.roundMin * 60_000L;
         m.durMin = m.roundMin;
         m.round = true;
@@ -140,12 +136,11 @@ public final class TimerCenter {
         if (m.round && m.planActive) {
             m.doneRounds++;
             long start = end - m.durMin * 60_000L;
-            boolean after = m.swapped;
-            int idx = after ? m.doneRounds - m.planA : m.doneRounds;
-            m.log.add((after ? "좌우 " : "") + idx + "회 " + hm(start) + "–" + hm(end));
-            if (m.planDone()) msg = unit + "호기 판 완료 — 가공 결과를 입력하세요";
-            else if (m.swapDue()) msg = unit + "호기 " + m.planA + "회 끝 — 좌우 바꾸세요";
-            else msg = unit + "호기 " + (after ? "좌우 " : "") + idx + "회 끝 — 다음 회차 시작";
+            int idx = m.doneRounds;
+            m.log.add(idx + "회 " + hm(start) + "–" + hm(end));
+            Store.addRound(c, unit, m.spec, start, end);
+            if (m.planDone()) msg = unit + "호기 " + idx + "회 판 완료 — 가공 결과를 입력하세요";
+            else msg = unit + "호기 " + idx + "회 끝 — 다음 회차 시작";
         } else {
             msg = unit + "호기 " + m.durMin + "분 타이머 완료";
         }
