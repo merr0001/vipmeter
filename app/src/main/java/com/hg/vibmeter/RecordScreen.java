@@ -110,12 +110,15 @@ class RecordScreen extends MainActivity.Screen {
     private LinearLayout card(int unit) {
         LinearLayout row = U.row(a);
         row.setBackground(U.box(a, U.PLATE, 6, U.RULE, 1));
-        row.setPadding(0, U.dp(a, 10), U.dp(a, 12), U.dp(a, 10));
+        row.setPadding(U.dp(a, 6), U.dp(a, 10), U.dp(a, 12), U.dp(a, 10));
         LinearLayout no = U.col(a);
         no.setGravity(Gravity.CENTER);
         no.addView(U.tv(a, String.valueOf(unit), 22, U.INK, U.BOLD));
         no.addView(U.tv(a, "호기", 10, U.SUB, null));
-        row.addView(no, new LinearLayout.LayoutParams(U.dp(a, 56), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(no, new LinearLayout.LayoutParams(U.dp(a, 52), ViewGroup.LayoutParams.WRAP_CONTENT));
+        View sep = new View(a);
+        sep.setBackground(U.dashed(a, android.graphics.Color.TRANSPARENT, 0, U.RULE));
+        row.addView(sep, U.margins(new LinearLayout.LayoutParams(U.dp(a, 1), ViewGroup.LayoutParams.MATCH_PARENT), a, 4, 0, 12, 0));
         return row;
     }
 

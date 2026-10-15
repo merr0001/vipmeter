@@ -49,6 +49,8 @@ public final class U {
         v.setTextColor(color);
         if (tf != null) v.setTypeface(tf);
         v.setIncludeFontPadding(false);
+        // 기본은 글자 크기만큼만 차지 → 부모의 가운데/오른쪽 정렬이 그대로 적용됨
+        v.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return v;
     }
 

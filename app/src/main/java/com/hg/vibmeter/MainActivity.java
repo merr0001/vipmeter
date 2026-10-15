@@ -168,7 +168,8 @@ public class MainActivity extends Activity {
             TabIcon ic = new TabIcon(this, i);
             c.addView(ic, new LinearLayout.LayoutParams(U.dp(this, 24), U.dp(this, 24)));
             TextView t = U.tv(this, names[i], 12, U.SUB, null);
-            t.setPadding(0, U.dp(this, 3), 0, 0);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(0, U.dp(this, 4), 0, 0);
             c.addView(t);
             tabLabels[i] = t;
             cell.addView(c, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
