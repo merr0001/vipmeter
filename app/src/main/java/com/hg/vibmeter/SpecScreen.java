@@ -19,7 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** 기준 탭: 스펙별 목표 + 호기별 실측, 스펙 상세(추천 설정 · 설정 찾기) */
+/** 가이드 탭: 스펙별 목표 + 호기별 실측, 스펙 상세(추천 설정 · 설정 찾기) */
 class SpecScreen extends MainActivity.Screen {
 
     private LinearLayout rows;
@@ -32,7 +32,7 @@ class SpecScreen extends MainActivity.Screen {
         ScrollView sv = new ScrollView(c);
         LinearLayout col = U.col(c);
         sv.addView(col);
-        col.addView(a.header("스펙 기준", "RMS mm/s"));
+        col.addView(a.header("가이드", "설비별 스펙 주파수 쉽게 찾기"));
         rows = U.panel(c);
         col.addView(rows, U.margins(U.match(), c, 14, 0, 14, 0));
         LinearLayout legend = U.row(c);
@@ -97,7 +97,7 @@ class SpecScreen extends MainActivity.Screen {
     void openDetail(Store.Spec s) {
         Context c = a;
         LinearLayout col = U.col(c);
-        col.addView(a.backRow("스펙 기준"));
+        col.addView(a.backRow("가이드"));
         LinearLayout hd = U.row(c);
         hd.setPadding(U.dp(c, 18), 0, U.dp(c, 18), U.dp(c, 10));
         hd.setGravity(Gravity.BOTTOM);
