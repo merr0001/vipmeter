@@ -55,6 +55,7 @@ public final class TimerCenter {
         Store.Machine m = Store.machine(c, unit);
         m.endAt = System.currentTimeMillis() + minutes * 60_000L;
         m.durMin = minutes;
+        clearPause(m);
         m.round = false;
         m.finished = false;
         Store.save(c, m);
@@ -79,14 +80,45 @@ public final class TimerCenter {
         if (!m.planActive || m.planDone()) return;
         m.endAt = System.currentTimeMillis() + m.roundMin * 60_000L;
         m.durMin = m.roundMin;
+        clearPause(m);
         m.round = true;
         m.finished = false;
         Store.save(c, m);
         schedule(c, unit, m.endAt);
     }
 
+    private static void clearPause(Store.Machine m) { m.pausedLeft = 0; m.pauseAt = 0; m.pausedMs = 0; }
+
+    /** 일시정지: 남은 시간을 보관하고 알람 취소 */
+    public static boolean pause(Context c, int unit) {
+        Store.Machine m = Store.machine(c, unit);
+        long now = System.currentTimeMillis();
+        if (m.endAt <= now) return false;
+        m.pausedLeft = m.endAt - now;
+        m.pauseAt = now;
+        m.endAt = 0;
+        Store.save(c, m);
+        unschedule(c, unit);
+        return true;
+    }
+
+    /** 계속: 남은 시간부터 다시 */
+    public static boolean resume(Context c, int unit) {
+        Store.Machine m = Store.machine(c, unit);
+        if (!m.paused()) return false;
+        long now = System.currentTimeMillis();
+        m.endAt = now + m.pausedLeft;
+        if (m.pauseAt > 0) m.pausedMs += now - m.pauseAt;
+        m.pausedLeft = 0;
+        m.pauseAt = 0;
+        Store.save(c, m);
+        schedule(c, unit, m.endAt);
+        return true;
+    }
+
     public static void stop(Context c, int unit) {
         Store.Machine m = Store.machine(c, unit);
+        clearPause(m);
         m.endAt = 0;
         m.finished = false;
         Store.save(c, m);
@@ -96,6 +128,7 @@ public final class TimerCenter {
     public static void endPlan(Context c, int unit) {
         Store.Machine m = Store.machine(c, unit);
         m.planActive = false;
+        clearPause(m);
         m.endAt = 0;
         m.finished = false;
         Store.save(c, m);
@@ -105,6 +138,7 @@ public final class TimerCenter {
     public static void addMinute(Context c, int unit) {
         Store.Machine m = Store.machine(c, unit);
         long now = System.currentTimeMillis();
+        if (m.paused()) { m.pausedLeft += 60_000L; m.durMin += 1; Store.save(c, m); return; }
         if (m.endAt <= now) return;
         m.endAt += 60_000L;
         m.durMin += 1;
@@ -135,7 +169,7 @@ public final class TimerCenter {
         String msg;
         if (m.round && m.planActive) {
             m.doneRounds++;
-            long start = end - m.durMin * 60_000L;
+            long start = end - m.durMin * 60_000L - m.pausedMs;
             int idx = m.doneRounds;
             m.log.add(idx + "회 " + hm(start) + "–" + hm(end));
             Store.addRound(c, unit, m.spec, start, end);
@@ -145,6 +179,7 @@ public final class TimerCenter {
             msg = unit + "호기 " + m.durMin + "분 타이머 완료";
         }
         m.endAt = 0;
+        clearPause(m);
         m.finished = true;
         m.finishMsg = msg;
         Store.save(c, m);

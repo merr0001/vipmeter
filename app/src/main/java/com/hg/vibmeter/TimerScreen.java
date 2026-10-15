@@ -95,6 +95,16 @@ class TimerScreen extends MainActivity.Screen {
                 double tot = m.durMin * 60_000.0;
                 prog.frac = (float) Math.max(0, Math.min(1, 1 - (m.endAt - now) / tot));
                 prog.color = U.PHOS; prog.track = Color.argb(46, 159, 224, 184);
+            } else if (m.paused()) {
+                setBackground(U.box(c, U.SCREEN, 7, U.WARN, 3));
+                fg = U.PLATE; sub = Color.rgb(0xe8, 0xc0, 0x6a);
+                st.setText("일시정지");
+                time.setText(U.mmss(m.pausedLeft));
+                time.setTextSize(25);
+                time.setTextColor((now / 600) % 2 == 0 ? Color.rgb(0xe8, 0xc0, 0x6a) : Color.argb(110, 232, 192, 106));
+                double tot = m.durMin * 60_000.0;
+                prog.frac = (float) Math.max(0, Math.min(1, 1 - m.pausedLeft / tot));
+                prog.color = Color.rgb(0xe8, 0xc0, 0x6a); prog.track = Color.argb(46, 232, 192, 106);
             } else {
                 setBackground(U.dashed(c, U.PLATE, 7, U.DASH));
                 fg = U.INK; sub = Color.rgb(0x8b, 0x96, 0x8c);
@@ -185,7 +195,7 @@ class TimerScreen extends MainActivity.Screen {
         });
         allTile.setOnLongClickListener(v -> {
             if (multi) return false;
-            for (Store.Machine m : Store.machines(a)) if (m.endAt > 0) TimerCenter.stop(a, m.unit);
+            for (Store.Machine m : Store.machines(a)) if (m.endAt > 0 || m.paused()) TimerCenter.stop(a, m.unit);
             Toast.makeText(a, "진행 중인 타이머를 모두 정지했습니다", Toast.LENGTH_SHORT).show();
             tick();
             return true;
@@ -220,13 +230,14 @@ class TimerScreen extends MainActivity.Screen {
     @Override void tick() {
         if (root == null) return;
         long now = System.currentTimeMillis();
-        int run = 0, done = 0;
+        int run = 0, done = 0, paused = 0;
         for (Store.Machine m : Store.machines(a)) {
             tiles[m.unit].render(m, now);
             if (m.finished) done++;
-            else if (m.endAt > now) run++;
+            else if (m.endAt > now || m.paused()) run++;
+            if (m.paused()) paused++;
         }
-        sumRun.setText("진행 " + run);
+        sumRun.setText(paused > 0 ? "진행 " + run + " · 멈춤 " + paused : "진행 " + run);
         sumDone.setText("완료 " + done);
         sumIdle.setText("대기 " + (Store.UNITS - run - done));
         sumDone.setVisibility(done > 0 ? View.VISIBLE : View.GONE);
@@ -334,6 +345,16 @@ class TimerScreen extends MainActivity.Screen {
         TextView state = U.tv(a, "", 14, U.SUB, U.MONO_B);
         s.addView(state, U.margins(U.match(), a, 0, 0, 0, 8));
         s.addView(presetGrid(min -> { TimerCenter.startSingle(a, unit, min); a.closeSheet(); tick(); }), U.match());
+        LinearLayout pr = U.row(a);
+        TextView pauseBtn = action(pr, "일시정지", U.INK, v -> {
+            Store.Machine m = Store.machine(a, unit);
+            if (m.paused()) TimerCenter.resume(a, unit);
+            else if (!TimerCenter.pause(a, unit)) Toast.makeText(a, "진행 중인 타이머가 없습니다", Toast.LENGTH_SHORT).show();
+            tick();
+        });
+        pauseBtn.setTextSize(16);
+        ((LinearLayout.LayoutParams) pauseBtn.getLayoutParams()).height = U.dp(a, 50);
+        s.addView(pr, U.match());
         LinearLayout acts = U.row(a);
         action(acts, "+1분", U.INK, v -> { TimerCenter.addMinute(a, unit); tick(); });
         action(acts, "다시 시작", U.INK, v -> {
@@ -353,8 +374,15 @@ class TimerScreen extends MainActivity.Screen {
             Store.Machine m = Store.machine(a, unit);
             long now = System.currentTimeMillis();
             if (m.endAt > now) state.setText((m.round ? roundLabel(m) + " 진행 " : m.durMin + "분 진행 ") + U.mmss(m.endAt - now) + " 남음");
+            else if (m.paused()) state.setText((m.round ? roundLabel(m) + " " : m.durMin + "분 ") + "일시정지 · " + U.mmss(m.pausedLeft) + " 남음");
             else if (m.finished) state.setText(m.finishMsg);
             else state.setText("대기 중");
+            boolean p = m.paused();
+            pauseBtn.setText(p ? "▶ 계속" : "❚❚ 일시정지");
+            pauseBtn.setTextColor(p ? Color.WHITE : U.INK);
+            pauseBtn.setBackground(p ? U.box(a, U.OK, 7, U.OK, 0) : U.box(a, U.ENAMEL, 7, U.RULE, 1));
+            pauseBtn.setAlpha(p || m.endAt > now ? 1f : 0.45f);
+            state.setTextColor(p ? U.WARN : U.SUB);
             renderPlan(plan, m);
         };
         sheetRefresh.run();
@@ -364,7 +392,7 @@ class TimerScreen extends MainActivity.Screen {
     private int planSig = -1;
 
     private void renderPlan(LinearLayout plan, Store.Machine m) {
-        int sig = (m.planActive ? 1 : 0) * 100000 + m.doneRounds * 1000 + (m.planA * 7) + (m.endAt > 0 ? 10 : 0);
+        int sig = (m.planActive ? 1 : 0) * 100000 + m.doneRounds * 1000 + (m.planA * 7) + (m.endAt > 0 ? 10 : 0) + (m.paused() ? 3 : 0);
         if (sig == planSig && plan.getChildCount() > 0) return;
         planSig = sig;
         plan.removeAllViews();
@@ -406,7 +434,7 @@ class TimerScreen extends MainActivity.Screen {
             for (int i = Math.max(0, m.log.size() - 6); i < m.log.size(); i++) sb.append(m.log.get(i)).append('\n');
             plan.addView(U.tv(a, sb.toString().trim(), 12, U.INK, U.MONO), U.margins(U.match(), a, 0, 0, 0, 6));
         }
-        boolean run = m.endAt > System.currentTimeMillis();
+        boolean run = m.endAt > System.currentTimeMillis() || m.paused();
         if (!run) {
             String label = null;
             if (m.planDone()) label = "가공 결과 입력";
@@ -435,7 +463,7 @@ class TimerScreen extends MainActivity.Screen {
 
     private View roundsRow(Store.Machine m) {
         LinearLayout r = U.row(a);
-        boolean run = m.endAt > System.currentTimeMillis();
+        boolean run = m.endAt > System.currentTimeMillis() || m.paused();
         for (int i = 1; i <= m.planTotal(); i++) {
             String label = String.valueOf(i);
             TextView b = U.tv(a, label, 13, U.INK, U.MONO_B);
@@ -469,6 +497,15 @@ class TimerScreen extends MainActivity.Screen {
             int pa = Store.getInt(a, "planN", 5), rm = Store.getInt(a, "roundMin", 20);
             for (int u : sel) TimerCenter.startPlan(a, u, pa, rm);
             Toast.makeText(a, sel.size() + "대 판 시작 (" + pa + "회 × " + rm + "분)", Toast.LENGTH_LONG).show();
+            exitMulti();
+        });
+        action(acts, "멈춤/계속", U.INK, v -> {
+            boolean any = false;
+            long now = System.currentTimeMillis();
+            for (int u : sel) if (Store.machine(a, u).endAt > now) any = true;
+            int n = 0;
+            for (int u : sel) if (any ? TimerCenter.pause(a, u) : TimerCenter.resume(a, u)) n++;
+            Toast.makeText(a, n + "대 " + (any ? "일시정지" : "계속"), Toast.LENGTH_SHORT).show();
             exitMulti();
         });
         action(acts, "선택 해제", U.INK, v -> exitMulti());

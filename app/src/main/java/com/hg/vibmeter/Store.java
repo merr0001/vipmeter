@@ -74,6 +74,11 @@ public final class Store {
         public long planStart;
         public List<String> log = new ArrayList<>();
 
+        // 일시정지
+        public long pausedLeft;     // >0 이면 일시정지 중 (남은 ms)
+        public long pauseAt;        // 일시정지 누른 시각
+        public long pausedMs;       // 이번 타이머에서 멈춰 있던 합계
+        public boolean paused() { return pausedLeft > 0; }
         public boolean running(long now) { return endAt > 0 && endAt > now; }
         public int planTotal() { return planA; }
         public boolean planDone() { return planActive && doneRounds >= planTotal(); }
@@ -101,6 +106,9 @@ public final class Store {
             m.roundMin = o.optInt("roundMin", 20);
             m.doneRounds = o.optInt("doneRounds", 0);
             m.planStart = o.optLong("planStart", 0);
+            m.pausedLeft = o.optLong("pausedLeft", 0);
+            m.pauseAt = o.optLong("pauseAt", 0);
+            m.pausedMs = o.optLong("pausedMs", 0);
             JSONArray a = o.optJSONArray("log");
             if (a != null) for (int i = 0; i < a.length(); i++) m.log.add(a.optString(i));
         } catch (Exception ignored) {}
@@ -122,6 +130,9 @@ public final class Store {
             o.put("roundMin", m.roundMin);
             o.put("doneRounds", m.doneRounds);
             o.put("planStart", m.planStart);
+            o.put("pausedLeft", m.pausedLeft);
+            o.put("pauseAt", m.pauseAt);
+            o.put("pausedMs", m.pausedMs);
             o.put("log", new JSONArray(m.log));
             sp(c).edit().putString("m" + m.unit, o.toString()).commit();
         } catch (Exception ignored) {}

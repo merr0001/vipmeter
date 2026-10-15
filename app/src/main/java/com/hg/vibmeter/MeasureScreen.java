@@ -300,6 +300,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         Store.Machine m = Store.machine(a, unit);
         long now = System.currentTimeMillis();
         if (m.endAt > now) { tvTimer.setText(U.mmss(m.endAt - now)); tvTimer.setTextColor(Color.rgb(0xff, 0xb4, 0x8f)); }
+        else if (m.paused()) { tvTimer.setText("❚❚ " + U.mmss(m.pausedLeft)); tvTimer.setTextColor(Color.rgb(0xe8, 0xc0, 0x6a)); }
         else if (m.finished) { tvTimer.setText("완료"); tvTimer.setTextColor(U.SIGNAL); }
         else { tvTimer.setText("—"); tvTimer.setTextColor(U.PHOS); }
         if (running && now - lastAnalyze >= 450) { lastAnalyze = now; analyze(); }
