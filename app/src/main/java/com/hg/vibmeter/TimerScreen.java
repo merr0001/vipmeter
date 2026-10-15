@@ -124,8 +124,8 @@ class TimerScreen extends MainActivity.Screen {
             if (multi) {
                 st.setVisibility(INVISIBLE);
                 check.setVisibility(VISIBLE);
-                check.setBackground(selected ? U.box(c, U.SIGNAL, 11, Color.WHITE, 2) : U.box(c, Color.TRANSPARENT, 11, run ? Color.rgb(0x5b, 0x6e, 0x64) : U.DASH, 2));
-                if (selected) setForeground(U.box(c, Color.TRANSPARENT, 7, U.SIGNAL, 3));
+                check.setBackground(selected ? U.box(c, U.OK, 11, Color.WHITE, 2) : U.box(c, Color.TRANSPARENT, 11, run ? Color.rgb(0x5b, 0x6e, 0x64) : U.DASH, 2));
+                if (selected) setForeground(U.box(c, Color.TRANSPARENT, 7, U.OK, 3));
                 else setForeground(null);
             } else {
                 st.setVisibility(VISIBLE);
@@ -203,10 +203,35 @@ class TimerScreen extends MainActivity.Screen {
         g.addView(allTile, cell());
         col.addView(g, U.match());
 
-        hint = U.tv(c, "탭: 개별 타이머 · 길게 누르기: 여러 호기 선택", 12, U.SUB, null);
+        hint = U.tv(c, "탭: 개별 타이머 · 길게 누르기: 여러 호기 선택 → 아래 버튼", 12, U.SUB, null);
         hint.setPadding(U.dp(c, 16), U.dp(c, 10), U.dp(c, 16), U.dp(c, 20));
         col.addView(hint);
-        return sv;
+        multiPad = new View(c);
+        col.addView(multiPad, new LinearLayout.LayoutParams(1, U.dp(c, 120)));
+
+        FrameLayout root = new FrameLayout(c);
+        root.addView(sv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        multiBar = U.col(c);
+        multiBar.setBackground(U.box(c, U.INK, 12, U.INK, 0));
+        multiBar.setElevation(U.dp(c, 8));
+        multiBar.setPadding(U.dp(c, 10), U.dp(c, 10), U.dp(c, 10), U.dp(c, 10));
+        multiInfo = U.tv(c, "", 13, U.PHOS, U.MONO_B);
+        multiInfo.setPadding(U.dp(c, 4), 0, 0, U.dp(c, 8));
+        multiBar.addView(multiInfo);
+        LinearLayout br = U.row(c);
+        br.addView(barBtn("멈춤/계속", U.ENAMEL, U.INK, v -> multiPause()), new LinearLayout.LayoutParams(0, U.dp(c, 50), 1));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, U.dp(c, 50), 0.8f);
+        sp.leftMargin = U.dp(c, 6);
+        br.addView(barBtn("정지", U.ENAMEL, U.BAD, v -> multiStop()), sp);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(0, U.dp(c, 50), 1.6f);
+        gp.leftMargin = U.dp(c, 6);
+        br.addView(barBtn("작업 시작", U.SIGNAL, Color.WHITE, v -> multiStart()), gp);
+        multiBar.addView(br, U.match());
+        FrameLayout.LayoutParams ml = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        ml.setMargins(U.dp(c, 10), 0, U.dp(c, 10), U.dp(c, 10));
+        root.addView(multiBar, ml);
+        multiBar.setVisibility(View.GONE);
+        return root;
     }
 
     private GridLayout.LayoutParams cell() {
@@ -215,6 +240,18 @@ class TimerScreen extends MainActivity.Screen {
         p.height = U.dp(a, 88);
         p.setMargins(U.dp(a, 3), U.dp(a, 3), U.dp(a, 3), U.dp(a, 3));
         return p;
+    }
+
+    private LinearLayout multiBar;
+    private TextView multiInfo;
+    private View multiPad;
+
+    private TextView barBtn(String t, int bg, int fg, View.OnClickListener l) {
+        TextView b = U.tv(a, t, 16, fg, U.BOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setBackground(U.box(a, bg, 8, bg, 0));
+        b.setOnClickListener(l);
+        return b;
     }
 
     private TextView chip(LinearLayout row, int bg, int fg) {
@@ -245,6 +282,9 @@ class TimerScreen extends MainActivity.Screen {
         selBar.setVisibility(multi ? View.VISIBLE : View.GONE);
         selText.setText(sel.size() + "대 선택됨");
         allTile.setText(multi ? "전체\n선택" : "진행 중\n모두 정지");
+        multiBar.setVisibility(multi ? View.VISIBLE : View.GONE);
+        multiPad.setVisibility(multi ? View.VISIBLE : View.GONE);
+        multiInfo.setText(sel.isEmpty() ? "호기를 눌러 고르세요" : selLabel() + " 선택");
         if (sheetRefresh != null && a.sheetOpen()) sheetRefresh.run();
     }
 
@@ -252,7 +292,7 @@ class TimerScreen extends MainActivity.Screen {
     private void onTap(int unit) {
         if (multi) {
             if (sel.contains(unit)) sel.remove(unit); else sel.add(unit);
-            if (sel.isEmpty()) exitMulti(); else { tick(); showMultiSheet(); }
+            if (sel.isEmpty()) exitMulti(); else tick();
             return;
         }
         TimerCenter.acknowledge(a, unit);
@@ -264,13 +304,11 @@ class TimerScreen extends MainActivity.Screen {
         if (!multi) { multi = true; sel.clear(); a.closeSheet(); }
         sel.add(unit);
         tick();
-        showMultiSheet();
     }
 
     private void selectAll() {
         for (int u = 1; u <= Store.UNITS; u++) sel.add(u);
         tick();
-        showMultiSheet();
     }
 
     void exitMulti() {
@@ -282,24 +320,72 @@ class TimerScreen extends MainActivity.Screen {
 
     private Runnable sheetRefresh;
 
-    private View presetGrid(java.util.function.IntConsumer onPick) {
+    /** 1회 시간 고르기 (누르면 선택만, 시작하지 않음) */
+    private View presetSelect(int[] v, Runnable onChange) {
         GridLayout g = new GridLayout(a);
         g.setColumnCount(4);
-        int last = Store.getInt(a, "lastMin", 20);
+        List<TextView> btns = new ArrayList<>();
+        TextView custom = U.tv(a, "직접", 15, U.SUB, U.BOLD);
+        Runnable render = () -> {
+            boolean preset = false;
+            for (int k = 0; k < PRESETS.length; k++) {
+                boolean on = PRESETS[k] == v[1];
+                if (on) preset = true;
+                TextView b = btns.get(k);
+                b.setTextColor(on ? Color.WHITE : U.INK);
+                b.setBackground(on ? U.box(a, U.SIGNAL, 7, U.SIGNAL_DK, 0) : U.box(a, U.ENAMEL, 7, U.INK, 2));
+            }
+            custom.setText(preset ? "직접" : v[1] + "분");
+            custom.setTextColor(preset ? U.SUB : Color.WHITE);
+            custom.setBackground(preset ? U.dashed(a, U.ENAMEL, 7, Color.rgb(0x99, 0xa3, 0x97)) : U.box(a, U.SIGNAL, 7, U.SIGNAL_DK, 0));
+            if (onChange != null) onChange.run();
+        };
         for (int m : PRESETS) {
             final int mm = m;
-            TextView b = U.tv(a, m + "분", 20, m == last ? Color.WHITE : U.INK, U.MONO_B);
+            TextView b = U.tv(a, m + "분", 20, U.INK, U.MONO_B);
             b.setGravity(Gravity.CENTER);
-            b.setBackground(m == last ? U.box(a, U.SIGNAL, 7, U.SIGNAL, 0) : U.box(a, U.ENAMEL, 7, U.INK, 2));
-            b.setOnClickListener(v -> { Store.putInt(a, "lastMin", mm); onPick.accept(mm); });
+            b.setOnClickListener(x -> { v[1] = mm; render.run(); });
+            btns.add(b);
             g.addView(b, gp());
         }
-        TextView custom = U.tv(a, "직접", 15, U.SUB, U.BOLD);
         custom.setGravity(Gravity.CENTER);
-        custom.setBackground(U.dashed(a, U.ENAMEL, 7, Color.rgb(0x99, 0xa3, 0x97)));
-        custom.setOnClickListener(v -> askMinutes(onPick));
+        custom.setOnClickListener(x -> askMinutes(mm -> { v[1] = mm; render.run(); }));
         g.addView(custom, gp());
+        render.run();
         return g;
+    }
+
+    /** 작업 설정: 1회 시간 + 가공 횟수 → 작업 시작 */
+    private View setupPanel(String btnLabel, java.util.function.BiConsumer<Integer, Integer> onStart) {
+        LinearLayout p = U.col(a);
+        int[] v = {Store.getInt(a, "planN", 5), Store.getInt(a, "roundMin", 20)};
+        TextView sum = U.tv(a, "", 13, U.SUB, U.MONO_B);
+        Runnable upd = () -> sum.setText(v[0] + "회 × " + v[1] + "분 = 총 " + (v[0] * v[1]) + "분");
+        TextView t1 = U.sectionTitle(a, "1회 시간 · 눌러서 고르기");
+        p.addView(t1);
+        p.addView(presetSelect(v, upd), U.match());
+        LinearLayout r = U.row(a);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.addView(U.tv(a, "가공 횟수", 15, U.INK, U.BOLD), U.lpW(1));
+        TextView val = U.tv(a, v[0] + "회", 18, U.INK, U.MONO_B);
+        val.setGravity(Gravity.CENTER);
+        TextView minus = stepBtn("−"), plus = stepBtn("+");
+        minus.setOnClickListener(x -> { v[0] = Math.max(1, v[0] - 1); val.setText(v[0] + "회"); upd.run(); });
+        plus.setOnClickListener(x -> { v[0] = Math.min(30, v[0] + 1); val.setText(v[0] + "회"); upd.run(); });
+        r.addView(minus, new LinearLayout.LayoutParams(U.dp(a, 42), U.dp(a, 38)));
+        r.addView(val, new LinearLayout.LayoutParams(U.dp(a, 70), ViewGroup.LayoutParams.WRAP_CONTENT));
+        r.addView(plus, new LinearLayout.LayoutParams(U.dp(a, 42), U.dp(a, 38)));
+        p.addView(r, U.margins(U.match(), a, 3, 10, 3, 4));
+        sum.setPadding(U.dp(a, 4), U.dp(a, 4), 0, 0);
+        p.addView(sum);
+        upd.run();
+        TextView go = U.button(a, btnLabel, 0, x -> {
+            Store.putInt(a, "planN", v[0]);
+            Store.putInt(a, "roundMin", v[1]);
+            onStart.accept(v[0], v[1]);
+        });
+        p.addView(go, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 56)), a, 0, 12, 0, 0));
+        return p;
     }
 
     private GridLayout.LayoutParams gp() {
@@ -314,9 +400,9 @@ class TimerScreen extends MainActivity.Screen {
         e.setInputType(InputType.TYPE_CLASS_NUMBER);
         e.setHint("분");
         new android.app.AlertDialog.Builder(a)
-                .setTitle("타이머 시간 (분)")
+                .setTitle("1회 시간 (분)")
                 .setView(e)
-                .setPositiveButton("시작", (d, w) -> {
+                .setPositiveButton("확인", (d, w) -> {
                     try {
                         int m = Integer.parseInt(e.getText().toString().trim());
                         if (m > 0 && m <= 600) onPick.accept(m);
@@ -337,6 +423,10 @@ class TimerScreen extends MainActivity.Screen {
         return b;
     }
 
+    private static boolean active(Store.Machine m, long now) {
+        return m.planActive || m.endAt > now || m.paused();
+    }
+
     // ---------------- 개별 시트 ----------------
     void showUnitSheet(int unit) {
         planSig = -1;
@@ -344,46 +434,69 @@ class TimerScreen extends MainActivity.Screen {
         LinearLayout s = a.sheetBox(unit + "호기 타이머", m0.spec.isEmpty() ? null : m0.spec);
         TextView state = U.tv(a, "", 14, U.SUB, U.MONO_B);
         s.addView(state, U.margins(U.match(), a, 0, 0, 0, 8));
-        s.addView(presetGrid(min -> { TimerCenter.startSingle(a, unit, min); a.closeSheet(); tick(); }), U.match());
-        LinearLayout pr = U.row(a);
-        TextView pauseBtn = action(pr, "일시정지", U.INK, v -> {
-            Store.Machine m = Store.machine(a, unit);
-            if (m.paused()) TimerCenter.resume(a, unit);
-            else if (!TimerCenter.pause(a, unit)) Toast.makeText(a, "진행 중인 타이머가 없습니다", Toast.LENGTH_SHORT).show();
-            tick();
-        });
-        pauseBtn.setTextSize(16);
-        ((LinearLayout.LayoutParams) pauseBtn.getLayoutParams()).height = U.dp(a, 50);
-        s.addView(pr, U.match());
-        LinearLayout acts = U.row(a);
-        action(acts, "+1분", U.INK, v -> { TimerCenter.addMinute(a, unit); tick(); });
-        action(acts, "다시 시작", U.INK, v -> {
-            Store.Machine m = Store.machine(a, unit);
-            if (m.round && m.planActive) TimerCenter.startRound(a, unit);
-            else TimerCenter.startSingle(a, unit, m.durMin > 0 ? m.durMin : Store.getInt(a, "lastMin", 20));
-            tick();
-        });
-        action(acts, "정지", U.BAD, v -> { TimerCenter.stop(a, unit); tick(); });
-        s.addView(acts, U.match());
-
-        // 가공 계획
-        LinearLayout plan = U.panel(a);
-        plan.setBackground(U.box(a, U.ENAMEL, 7, U.RULE, 1));
-        s.addView(plan, U.margins(U.match(), a, 3, 10, 3, 0));
+        LinearLayout dyn = U.col(a);
+        s.addView(dyn, U.match());
+        final int[] mode = {-1};
+        final TextView[] pauseBtn = {null};
+        final LinearLayout[] plan = {null};
         sheetRefresh = () -> {
             Store.Machine m = Store.machine(a, unit);
             long now = System.currentTimeMillis();
+            int md = active(m, now) ? 1 : 0;
+            if (md != mode[0]) {
+                mode[0] = md;
+                planSig = -1;
+                dyn.removeAllViews();
+                if (md == 0) {
+                    dyn.addView(setupPanel("작업 시작", (n, min) -> {
+                        TimerCenter.startPlan(a, unit, n, min);
+                        a.closeSheet();
+                        Toast.makeText(a, unit + "호기 작업 시작 (" + n + "회 × " + min + "분)", Toast.LENGTH_SHORT).show();
+                        tick();
+                    }), U.match());
+                    pauseBtn[0] = null;
+                    plan[0] = null;
+                } else {
+                    LinearLayout pr = U.row(a);
+                    pauseBtn[0] = action(pr, "일시정지", U.INK, v -> {
+                        Store.Machine x = Store.machine(a, unit);
+                        if (x.paused()) TimerCenter.resume(a, unit);
+                        else if (!TimerCenter.pause(a, unit)) Toast.makeText(a, "진행 중인 타이머가 없습니다", Toast.LENGTH_SHORT).show();
+                        tick();
+                    });
+                    pauseBtn[0].setTextSize(16);
+                    ((LinearLayout.LayoutParams) pauseBtn[0].getLayoutParams()).height = U.dp(a, 50);
+                    dyn.addView(pr, U.match());
+                    LinearLayout acts = U.row(a);
+                    action(acts, "+1분", U.INK, v -> { TimerCenter.addMinute(a, unit); tick(); });
+                    action(acts, "이 회차 다시", U.INK, v -> {
+                        Store.Machine x = Store.machine(a, unit);
+                        if (x.planActive) TimerCenter.startRound(a, unit);
+                        else TimerCenter.startSingle(a, unit, x.durMin > 0 ? x.durMin : 20);
+                        tick();
+                    });
+                    action(acts, "정지", U.BAD, v -> { TimerCenter.stop(a, unit); tick(); });
+                    dyn.addView(acts, U.match());
+                    LinearLayout pl = U.panel(a);
+                    pl.setBackground(U.box(a, U.ENAMEL, 7, U.RULE, 1));
+                    dyn.addView(pl, U.margins(U.match(), a, 3, 10, 3, 0));
+                    plan[0] = pl;
+                }
+            }
             if (m.endAt > now) state.setText((m.round ? roundLabel(m) + " 진행 " : m.durMin + "분 진행 ") + U.mmss(m.endAt - now) + " 남음");
             else if (m.paused()) state.setText((m.round ? roundLabel(m) + " " : m.durMin + "분 ") + "일시정지 · " + U.mmss(m.pausedLeft) + " 남음");
             else if (m.finished) state.setText(m.finishMsg);
-            else state.setText("대기 중");
-            boolean p = m.paused();
-            pauseBtn.setText(p ? "▶ 계속" : "❚❚ 일시정지");
-            pauseBtn.setTextColor(p ? Color.WHITE : U.INK);
-            pauseBtn.setBackground(p ? U.box(a, U.OK, 7, U.OK, 0) : U.box(a, U.ENAMEL, 7, U.RULE, 1));
-            pauseBtn.setAlpha(p || m.endAt > now ? 1f : 0.45f);
-            state.setTextColor(p ? U.WARN : U.SUB);
-            renderPlan(plan, m);
+            else if (m.planActive) state.setText(m.planDone() ? "작업 완료" : m.doneRounds + "/" + m.planTotal() + "회 · 다음 회차 대기");
+            else state.setText("대기 중 · 시간 고르고 작업 시작");
+            state.setTextColor(m.paused() ? U.WARN : U.SUB);
+            if (pauseBtn[0] != null) {
+                boolean p = m.paused();
+                pauseBtn[0].setText(p ? "▶ 계속" : "❚❚ 일시정지");
+                pauseBtn[0].setTextColor(p ? Color.WHITE : U.INK);
+                pauseBtn[0].setBackground(p ? U.box(a, U.OK, 7, U.OK, 0) : U.box(a, U.ENAMEL, 7, U.RULE, 1));
+                pauseBtn[0].setAlpha(p || m.endAt > now ? 1f : 0.45f);
+            }
+            if (plan[0] != null) renderPlan(plan[0], m);
         };
         sheetRefresh.run();
         a.showSheet(s, () -> sheetRefresh = null);
@@ -398,34 +511,10 @@ class TimerScreen extends MainActivity.Screen {
         plan.removeAllViews();
         int unit = m.unit;
         if (!m.planActive) {
-            plan.addView(U.sectionTitle(a, "가공 계획 (회차 타이머)"));
-            int[] v = {Store.getInt(a, "planN", 5), Store.getInt(a, "roundMin", 20)};
-            String[] names = {"가공 횟수", "1회 시간"};
-            String[] units = {"회", "분"};
-            for (int i = 0; i < 2; i++) {
-                final int k = i;
-                LinearLayout r = U.row(a);
-                r.addView(U.tv(a, names[i], 14, U.INK, U.BOLD), U.lpW(1));
-                TextView val = U.tv(a, v[i] + units[i], 17, U.INK, U.MONO_B);
-                val.setGravity(Gravity.CENTER);
-                TextView minus = stepBtn("−"), plus = stepBtn("+");
-                minus.setOnClickListener(x -> { v[k] = Math.max(1, v[k] - (k == 1 ? 5 : 1)); val.setText(v[k] + units[k]); });
-                plus.setOnClickListener(x -> { v[k] = Math.min(k == 1 ? 120 : 30, v[k] + (k == 1 ? 5 : 1)); val.setText(v[k] + units[k]); });
-                r.addView(minus, new LinearLayout.LayoutParams(U.dp(a, 38), U.dp(a, 34)));
-                r.addView(val, new LinearLayout.LayoutParams(U.dp(a, 64), ViewGroup.LayoutParams.WRAP_CONTENT));
-                r.addView(plus, new LinearLayout.LayoutParams(U.dp(a, 38), U.dp(a, 34)));
-                plan.addView(r, U.margins(U.match(), a, 0, 3, 0, 3));
-            }
-            TextView go = U.button(a, "작업 시작 (1회차 바로 시작)", 2, x -> {
-                Store.putInt(a, "planN", v[0]); Store.putInt(a, "roundMin", v[1]);
-                TimerCenter.startPlan(a, unit, v[0], v[1]);
-                a.closeSheet();
-                tick();
-            });
-            plan.addView(go, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 48)), a, 0, 8, 0, 0));
+            plan.addView(U.tv(a, "단일 타이머 진행 중", 13, U.SUB, null));
             return;
         }
-        plan.addView(U.sectionTitle(a, "가공 계획 · " + m.planA + "회 × " + m.roundMin + "분"));
+        plan.addView(U.sectionTitle(a, "작업 · " + m.planA + "회 × " + m.roundMin + "분"));
         plan.addView(roundsRow(m), U.match());
         int total = m.planTotal() * m.roundMin, doneMin = m.doneRounds * m.roundMin;
         plan.addView(U.tv(a, "누적 " + doneMin + " / " + total + "분", 13, U.SUB, U.MONO), U.margins(U.match(), a, 0, 8, 0, 4));
@@ -436,11 +525,8 @@ class TimerScreen extends MainActivity.Screen {
         }
         boolean run = m.endAt > System.currentTimeMillis() || m.paused();
         if (!run) {
-            String label = null;
-            if (m.planDone()) label = "가공 결과 입력";
-            else label = "다음 회차 시작";
             final boolean done = m.planDone();
-            TextView b = U.button(a, label, 0, x -> {
+            TextView b = U.button(a, done ? "가공 결과 입력" : "다음 회차 시작", 0, x -> {
                 TimerCenter.acknowledge(a, unit);
                 if (done) { a.closeSheet(); ResultSheet.show(a, unit); }
                 else { TimerCenter.startRound(a, unit); a.closeSheet(); }
@@ -480,41 +566,39 @@ class TimerScreen extends MainActivity.Screen {
         return hs;
     }
 
-    // ---------------- 다중 시트 ----------------
-    private void showMultiSheet() {
+    // ---------------- 다중 선택: 다 고르고 버튼 → 시간 묻기 ----------------
+    private String selLabel() {
         List<Integer> l = new ArrayList<>(sel);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < l.size(); i++) { if (i > 0) sb.append(" · "); sb.append(l.get(i)); }
-        String title = l.size() > 6 ? l.size() + "대 동시 시작" : sb + "호기 동시 시작";
-        LinearLayout s = a.sheetBox(title, null);
-        s.addView(presetGrid(min -> {
-            for (int u : sel) TimerCenter.startSingle(a, u, min);
-            Toast.makeText(a, sel.size() + "대 " + min + "분 시작", Toast.LENGTH_SHORT).show();
+        return l.size() > 8 ? l.size() + "대" : sb + "호기";
+    }
+
+    private void multiStart() {
+        if (sel.isEmpty()) return;
+        LinearLayout s = a.sheetBox(sel.size() + "대 작업 시작", selLabel());
+        s.addView(setupPanel(sel.size() + "대 작업 시작", (n, min) -> {
+            for (int u : sel) TimerCenter.startPlan(a, u, n, min);
+            Toast.makeText(a, sel.size() + "대 작업 시작 (" + n + "회 × " + min + "분)", Toast.LENGTH_LONG).show();
             exitMulti();
         }), U.match());
-        LinearLayout acts = U.row(a);
-        action(acts, "작업 시작", U.INK, v -> {
-            int pa = Store.getInt(a, "planN", 5), rm = Store.getInt(a, "roundMin", 20);
-            for (int u : sel) TimerCenter.startPlan(a, u, pa, rm);
-            Toast.makeText(a, sel.size() + "대 작업 시작 (" + pa + "회 × " + rm + "분)", Toast.LENGTH_LONG).show();
-            exitMulti();
-        });
-        action(acts, "멈춤/계속", U.INK, v -> {
-            boolean any = false;
-            long now = System.currentTimeMillis();
-            for (int u : sel) if (Store.machine(a, u).endAt > now) any = true;
-            int n = 0;
-            for (int u : sel) if (any ? TimerCenter.pause(a, u) : TimerCenter.resume(a, u)) n++;
-            Toast.makeText(a, n + "대 " + (any ? "일시정지" : "계속"), Toast.LENGTH_SHORT).show();
-            exitMulti();
-        });
-        action(acts, "선택 해제", U.INK, v -> exitMulti());
-        action(acts, "선택 정지", U.BAD, v -> { for (int u : sel) TimerCenter.stop(a, u); exitMulti(); });
-        s.addView(acts, U.match());
-        TextView tip = U.tv(a, "다른 호기를 탭하면 추가·해제 · 작업 시작은 마지막에 쓴 계획 사용", 11.5f, U.SUB, null);
-        tip.setPadding(U.dp(a, 4), U.dp(a, 8), 0, 0);
-        s.addView(tip);
         sheetRefresh = null;
         a.showSheet(s, null);
+    }
+
+    private void multiPause() {
+        boolean any = false;
+        long now = System.currentTimeMillis();
+        for (int u : sel) if (Store.machine(a, u).endAt > now) any = true;
+        int n = 0;
+        for (int u : sel) if (any ? TimerCenter.pause(a, u) : TimerCenter.resume(a, u)) n++;
+        Toast.makeText(a, n + "대 " + (any ? "일시정지" : "계속"), Toast.LENGTH_SHORT).show();
+        exitMulti();
+    }
+
+    private void multiStop() {
+        new android.app.AlertDialog.Builder(a).setTitle(selLabel() + " 정지할까요?")
+                .setPositiveButton("정지", (d, w) -> { for (int u : sel) TimerCenter.stop(a, u); exitMulti(); })
+                .setNegativeButton("취소", null).show();
     }
 }
