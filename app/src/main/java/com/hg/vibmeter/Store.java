@@ -41,6 +41,7 @@ public final class Store {
         public double setHz = Double.NaN;
         public double freq, vRms, vPeak, zRms, pctX, pctY, fs;
         public String memo = "";
+        public boolean edited;
         public double hz() { return Double.isNaN(setHz) ? freq : setHz; }
     }
 
@@ -53,6 +54,7 @@ public final class Store {
         public double angle = Double.NaN, length = Double.NaN;
         public String rShape = "";
         public String memo = "";
+        public boolean edited;
     }
 
     public static final class Machine {
@@ -215,6 +217,7 @@ public final class Store {
             r.pctY = o.optDouble("pctY", 0);
             r.fs = o.optDouble("fs", 0);
             r.memo = o.optString("memo", "");
+            r.edited = o.optBoolean("edited", false);
             l.add(r);
         }
         return l;
@@ -229,6 +232,7 @@ public final class Store {
                 putD(o, "setHz", r.setHz);
                 o.put("freq", r.freq); o.put("vRms", r.vRms); o.put("vPeak", r.vPeak); o.put("zRms", r.zRms);
                 o.put("pctX", r.pctX); o.put("pctY", r.pctY); o.put("fs", r.fs); o.put("memo", r.memo);
+                if (r.edited) o.put("edited", true);
                 a.put(o);
             }
         } catch (Exception ignored) {}
@@ -259,6 +263,7 @@ public final class Store {
             r.length = o.has("length") ? o.optDouble("length") : Double.NaN;
             r.rShape = o.optString("rShape", "");
             r.memo = o.optString("memo", "");
+            r.edited = o.optBoolean("edited", false);
             l.add(r);
         }
         return l;
@@ -274,6 +279,7 @@ public final class Store {
                 o.put("rounds", r.rounds); o.put("minutes", r.minutes);
                 putD(o, "angle", r.angle); putD(o, "length", r.length);
                 o.put("rShape", r.rShape); o.put("memo", r.memo);
+                if (r.edited) o.put("edited", true);
                 a.put(o);
             }
         } catch (Exception ignored) {}
@@ -388,6 +394,52 @@ public final class Store {
         List<Handover> l = handovers(c);
         l.removeIf(h -> h.id == id);
         saveHandovers(c, l);
+    }
+
+    // ---------------- 스펙 이름 바꾸기 (지난 기록 함께) ----------------
+    public static int countSpec(Context c, String name) {
+        int n = 0;
+        for (Record r : records(c)) if (name.equals(r.spec)) n++;
+        for (Result r : results(c)) if (name.equals(r.spec)) n++;
+        return n;
+    }
+
+    public static synchronized void renameSpec(Context c, String old, String nw) {
+        if (old == null || old.equals(nw)) return;
+        List<Record> rl = records(c);
+        for (Record r : rl) if (old.equals(r.spec)) r.spec = nw;
+        saveRecords(c, rl);
+        List<Result> sl = results(c);
+        for (Result r : sl) if (old.equals(r.spec)) r.spec = nw;
+        saveResults(c, sl);
+        JSONArray ra = readArr(c, "rounds.json");
+        for (int i = 0; i < ra.length(); i++) {
+            JSONObject o = ra.optJSONObject(i);
+            try { if (o != null && old.equals(o.optString("spec"))) o.put("spec", nw); } catch (Exception ignored) {}
+        }
+        writeArr(c, "rounds.json", ra);
+        List<Handover> hl = handovers(c);
+        for (Handover h : hl) for (HandRow r : h.rows) if (old.equals(r.spec.trim())) r.spec = nw;
+        saveHandovers(c, hl);
+        for (int u = 1; u <= UNITS; u++) {
+            Machine m = machine(c, u);
+            if (old.equals(m.spec)) { m.spec = nw; save(c, m); }
+        }
+    }
+
+    /** v2.3 한 번만: 목표 범위를 벗어난(높음·낮음) 측정 기록 지우기 */
+    public static void cleanOutOfRangeOnce(Context c) {
+        if (sp(c).getBoolean("clean_v23", false)) return;
+        List<Record> l = records(c);
+        List<Spec> specs = specs(c);
+        l.removeIf(r -> {
+            Spec s = null;
+            for (Spec x : specs) if (x.name.equals(r.spec)) s = x;
+            int j = U.judge(s, r.vRms);
+            return j == 1 || j == 2;
+        });
+        saveRecords(c, l);
+        sp(c).edit().putBoolean("clean_v23", true).commit();
     }
 
     /** 처음 실행 시 실제 측정 기록 넣기 */

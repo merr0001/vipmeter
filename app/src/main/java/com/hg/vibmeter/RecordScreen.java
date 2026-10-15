@@ -61,6 +61,9 @@ class RecordScreen extends MainActivity.Screen {
         chips.setPadding(U.dp(c, 14), 0, U.dp(c, 14), U.dp(c, 10));
         hs.addView(chips);
         col.addView(hs);
+        TextView hint = U.tv(c, "누르기: 수정 · 길게 누르기: 지우기", 11.5f, U.SUB, null);
+        hint.setPadding(U.dp(c, 16), 0, U.dp(c, 16), U.dp(c, 8));
+        col.addView(hint);
 
         ScrollView sv = new ScrollView(c);
         list = U.col(c);
@@ -132,6 +135,7 @@ class RecordScreen extends MainActivity.Screen {
             TextView t = U.tag(a, U.judgeText(j), j);
             top.addView(t, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 6, 0, 0, 0));
         }
+        if (r.edited) top.addView(editedTag(), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 5, 0, 0, 0));
         mid.addView(top);
         String sub = U.time(r.time, "M/d HH:mm") + " · " + U.f1(r.hz()) + " Hz" + (r.memo.isEmpty() ? "" : " · " + r.memo);
         TextView st = U.tv(a, sub, 11.5f, U.SUB, null);
@@ -143,6 +147,7 @@ class RecordScreen extends MainActivity.Screen {
         val.addView(U.tv(a, U.f1(r.vRms), 22, U.INK, U.MONO_B));
         val.addView(U.tv(a, "mm/s", 10, U.SUB, U.MONO));
         row.addView(val);
+        row.setOnClickListener(v -> RecordEdit.openRecord(a, r, this::refresh));
         row.setOnLongClickListener(v -> { confirmDelete(r, null); return true; });
         return row;
     }
@@ -155,6 +160,7 @@ class RecordScreen extends MainActivity.Screen {
         top.addView(U.tv(a, r.spec, 14, U.INK, U.MONO_B));
         top.addView(U.tag(a, "가공 결과", 3), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 6, 0, 0, 0));
         if (!r.rShape.isEmpty()) top.addView(U.tag(a, "R " + r.rShape, r.rShape.equals("양호") ? 0 : 1), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 4, 0, 0, 0));
+        if (r.edited) top.addView(editedTag(), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 4, 0, 0, 0));
         mid.addView(top);
         StringBuilder sb = new StringBuilder(U.time(r.time, "M/d HH:mm"));
         if (!Double.isNaN(r.setHz)) sb.append(" · ").append(U.f1(r.setHz)).append(" Hz");
@@ -171,8 +177,16 @@ class RecordScreen extends MainActivity.Screen {
         val.addView(U.tv(a, U.f1(r.vRms), 18, U.INK, U.MONO_B));
         val.addView(U.tv(a, "mm/s", 10, U.SUB, U.MONO));
         row.addView(val);
+        row.setOnClickListener(v -> RecordEdit.openResult(a, r, this::refresh));
         row.setOnLongClickListener(v -> { confirmDelete(null, r); return true; });
         return row;
+    }
+
+    private TextView editedTag() {
+        TextView t = U.tv(a, "수정됨", 9.5f, U.SIGNAL, U.BOLD);
+        t.setBackground(U.box(a, android.graphics.Color.TRANSPARENT, 3, U.SIGNAL, 1));
+        t.setPadding(U.dp(a, 4), U.dp(a, 1), U.dp(a, 4), U.dp(a, 1));
+        return t;
     }
 
     private void confirmDelete(Store.Record rec, Store.Result res) {
