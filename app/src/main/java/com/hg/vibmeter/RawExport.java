@@ -24,7 +24,7 @@ final class RawExport {
 
     static final String FOLDER = "진동지기";
 
-    static void saveAsync(Activity a, Store.Record r, boolean stable,
+    static void saveAsync(Activity a, Store.Record r, String verdict, String[][] extra,
                           long[] t, float[] x, float[] y, float[] z, int n, long wall0, Sensor acc) {
         if (n < 2) {
             Toast.makeText(a, "원본 데이터가 없어 zip은 만들지 않았습니다", Toast.LENGTH_SHORT).show();
@@ -33,7 +33,7 @@ final class RawExport {
         new Thread(() -> {
             String msg;
             try {
-                String name = save(a, r, stable, t, x, y, z, n, wall0, acc);
+                String name = save(a, r, verdict, extra, t, x, y, z, n, wall0, acc);
                 msg = "원본 저장됨 · 다운로드/" + FOLDER + "/" + name;
             } catch (Exception e) {
                 msg = "원본 저장 실패: " + e.getMessage();
@@ -43,10 +43,10 @@ final class RawExport {
         }).start();
     }
 
-    private static String save(Activity a, Store.Record r, boolean stable,
+    private static String save(Activity a, Store.Record r, String verdict, String[][] extra,
                                long[] t, float[] x, float[] y, float[] z, int n, long wall0, Sensor acc) throws Exception {
         String stamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(new Date(r.time));
-        String name = "진동지기 " + r.unit + "호기 " + stamp + ".zip";
+        String name = "진동지기 " + r.unit + "호기 " + stamp + (verdict.startsWith("실패") ? " 실패" : "") + ".zip";
 
         ContentResolver cr = a.getContentResolver();
         ContentValues cv = new ContentValues();
@@ -116,7 +116,8 @@ final class RawExport {
             kv(q, "X/Z %", String.format(Locale.US, "%.1f", r.pctX));
             kv(q, "Y/Z %", String.format(Locale.US, "%.1f", r.pctY));
             kv(q, "샘플 Hz", String.format(Locale.US, "%.1f", r.fs));
-            kv(q, "안정 판정", stable ? "안정" : "불안정");
+            kv(q, "판정", verdict);
+            if (extra != null) for (String[] e : extra) kv(q, e[0], e[1]);
             kv(q, "원본 길이 s", String.format(Locale.US, "%.2f", dur));
             kv(q, "원본 샘플 수", String.valueOf(n));
             kv(q, "기록 시각", tf.format(new Date(r.time)));

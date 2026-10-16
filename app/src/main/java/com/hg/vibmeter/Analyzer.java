@@ -23,6 +23,7 @@ public final class Analyzer {
         public double pctX, pctY;
         public boolean valid;
         public double prominence; // 봉우리 크기 ÷ 주변 평균 (진동이 뚜렷한지)
+        public double h2;         // 2배 주파수 성분 ÷ 기본 성분 (%) — 덜컥거림
     }
 
     private Analyzer() {}
@@ -43,6 +44,7 @@ public final class Analyzer {
         double[] pk = peakFrequency(t, z, n, r.fs);
         r.freq = pk[0];
         r.prominence = pk[1];
+        r.h2 = pk[2];
         if (r.freq > 0 && r.rmsZ > 0) {
             r.vRms = K_RMS_MM * r.rmsZ / r.freq;
             r.vPeak = K_PEAK_CM * r.rmsZ / r.freq;
@@ -106,7 +108,7 @@ public final class Analyzer {
         double[] mag = new double[N / 2];
         for (int k = 1; k < N / 2; k++) mag[k] = Math.hypot(re[k], im[k]);
         for (int k = k0; k <= k1; k++) if (mag[k] > best) { best = mag[k]; kb = k; }
-        if (kb < 1) return new double[]{0, 0};
+        if (kb < 1) return new double[]{0, 0, 0};
         double sum = 0; int cnt = 0;
         for (int k = k0; k <= k1; k++) { sum += mag[k]; cnt++; }
         double prom = cnt > 0 && sum > 0 ? best / (sum / cnt) : 0;
@@ -115,7 +117,18 @@ public final class Analyzer {
         double den = a - 2 * b + c;
         double p = den != 0 ? 0.5 * (a - c) / den : 0;
         if (p > 0.5) p = 0.5; if (p < -0.5) p = -0.5;
-        return new double[]{(kb + p) * df, prom};
+        double f0 = (kb + p) * df;
+        double h1 = band(mag, df, f0), h2 = band(mag, df, 2 * f0);
+        return new double[]{f0, prom, h1 > 0 ? 100.0 * h2 / h1 : 0};
+    }
+
+    /** f0 ±3Hz 성분 크기 (제곱합의 제곱근) */
+    private static double band(double[] mag, double df, double f0) {
+        int a = Math.max(1, (int) Math.ceil((f0 - 3) / df));
+        int b = Math.min(mag.length - 1, (int) Math.floor((f0 + 3) / df));
+        double s = 0;
+        for (int k = a; k <= b; k++) s += mag[k] * mag[k];
+        return Math.sqrt(s);
     }
 
     /** 제자리 radix-2 FFT (길이는 2의 거듭제곱) */
