@@ -354,6 +354,8 @@ class TimerScreen extends MainActivity.Screen {
 
     @Override void onShow() { tick(); }
 
+    static String roundLabel(Store.Machine m) { return (m.doneRounds + 1) + "회"; }
+
     private int rank(int st) { return st == WAIT ? 0 : st == RUN ? 1 : st == PAUSE ? 2 : 3; }
 
     private long key(Store.Machine m, int st, long now) {
