@@ -349,6 +349,10 @@ public final class Store {
             String s = count.replaceAll("[^0-9].*$", "");
             try { return Integer.parseInt(s); } catch (Exception e) { return 0; }
         }
+        public static final String VISUAL = "외관확인";
+        public boolean visual() { return VISUAL.equals(count); }
+        /** 보낼 때 글자: 3회 · 외관확인 · — */
+        public String todo() { return visual() ? VISUAL : rounds() > 0 ? rounds() + "회" : "—"; }
         public String specLabel() { return state.isEmpty() ? spec : spec + " " + state; }
     }
 
@@ -380,7 +384,7 @@ public final class Store {
                 r.state = ro.optString("state", ""); r.note = ro.optString("note", ""); r.live = ro.optBoolean("live", false);
                 if (r.state.isEmpty() && r.spec.trim().contains(" ")) { String[] sk = Kind.split(r.spec); r.spec = sk[0]; r.state = sk[1]; }
                 if (r.count.contains("진행")) r.live = true;
-                if (!r.count.isEmpty()) r.count = String.valueOf(r.rounds());
+                if (!r.count.isEmpty() && !r.visual()) r.count = String.valueOf(r.rounds());
                 h.rows.add(r);
             }
             l.add(h);

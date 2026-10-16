@@ -102,14 +102,16 @@ final class HandoverPages {
         }
         List<Store.HandRow> l = new ArrayList<>();
         for (int u : cnt.keySet()) {
+            Store.Machine m = Store.machine(c, u);
             Store.HandRow r = new Store.HandRow();
             r.unit = String.valueOf(u);
-            String full = spec.get(u) == null || spec.get(u).isEmpty() ? Store.machine(c, u).spec : spec.get(u);
+            String full = m.planActive && !m.spec.isEmpty() ? m.spec : (spec.get(u) == null || spec.get(u).isEmpty() ? m.spec : spec.get(u));
             String[] sk = Kind.split(full);
             r.spec = sk[0];
             r.state = sk[1];
-            r.count = String.valueOf(cnt.get(u)[0]);
-            r.live = live.contains(u);
+            // 다음 근무자가 할 일: 남은 횟수, 다 끝났으면 외관확인
+            if (m.planActive && !m.planDone()) r.count = String.valueOf(Math.max(1, m.planTotal() - m.doneRounds));
+            else r.count = Store.HandRow.VISUAL;
             l.add(r);
         }
         return l;
@@ -284,14 +286,14 @@ final class HandoverPages {
         sh.setBackground(U.box(c, U.SCREEN, 3, U.SCREEN, 0));
         sh.setPadding(U.dp(c, 7), U.dp(c, 2), U.dp(c, 7), U.dp(c, 2));
         t.addView(sh);
-        TextView sum = U.tv(c, "  가공 " + h.rows.size() + "대 · 총 " + totalRounds(h) + "회", 14, U.INK, U.BOLD);
+        TextView sum = U.tv(c, "  " + h.rows.size() + "대 인수인계", 14, U.INK, U.BOLD);
         t.addView(sum, U.lpW(1));
         t.addView(U.tv(c, "저장 " + U.time(h.savedAt, "M/d HH:mm") + "  ›", 11, U.SUB, null));
         card.addView(t);
         StringBuilder sb = new StringBuilder();
         for (Store.HandRow r : h.rows) {
             if (sb.length() > 0) sb.append("  ·  ");
-            sb.append(r.unit).append("호기 ").append(r.specLabel()).append(" ").append(r.rounds()).append("회");
+            sb.append(r.unit).append("호기 ").append(r.specLabel()).append(" ").append(r.todo());
         }
         if (sb.length() > 0) card.addView(U.tv(c, sb.toString(), 12, U.INK, U.MONO), U.margins(U.match(), c, 0, 6, 0, 0));
         if (!h.memo.isEmpty()) {
@@ -361,7 +363,7 @@ final class HandoverPages {
         paper.setBackground(U.box(c, Color.rgb(0xfb, 0xfc, 0xfa), 6, U.RULE, 1));
         paper.setPadding(U.dp(c, 10), U.dp(c, 10), U.dp(c, 10), U.dp(c, 10));
         LinearLayout ph = U.row(c);
-        ph.addView(U.tv(c, "H.G 진동연마 · 가공 호기", 15, U.INK, U.BOLD), U.lpW(1));
+        ph.addView(U.tv(c, "H.G 인수인계 · 다음 근무자가 할 일", 15, U.INK, U.BOLD), U.lpW(1));
         ph.addView(U.tv(c, isNew ? "새로 작성" : "저장 " + U.time(h.savedAt, "M/d HH:mm"), 11, U.SUB, null));
         paper.addView(ph);
         View rule = new View(c);
@@ -383,9 +385,9 @@ final class HandoverPages {
         add.setOnClickListener(v -> { pull(h, fields); h.rows.add(new Store.HandRow()); rebuild[0].run(); });
         add.setText("+ 호기 추가");
         rowActs.addView(add, new LinearLayout.LayoutParams(0, U.dp(c, 40), 1));
-        TextView auto = smallBtn(c, "타이머 기록으로 다시 채우기");
+        TextView auto = smallBtn(c, "상황판 기록으로 다시 채우기");
         auto.setOnClickListener(v -> new android.app.AlertDialog.Builder(a)
-                .setTitle("표를 타이머 기록으로 다시 채울까요?")
+                .setTitle("상황판 기록으로 다시 채울까요?")
                 .setMessage("지금 표의 내용은 바뀝니다. 메모는 그대로 둡니다.")
                 .setPositiveButton("다시 채우기", (dlg, w) -> { h.rows = autoRows(a, h.date, h.shift); rebuild[0].run(); })
                 .setNegativeButton("취소", null).show());
@@ -511,22 +513,30 @@ final class HandoverPages {
         }
         card.addView(st, U.match());
 
-        // 가공 횟수 1~10
-        card.addView(label(c, r.live ? "가공 횟수 · 진행 중" : "가공 횟수"));
-        LinearLayout cn = U.row(c);
-        int n = r.rounds();
+        // 가공할 횟수: 1~10회 중 하나 또는 외관확인
+        card.addView(label(c, "가공할 횟수"));
+        int n = r.visual() ? 0 : r.rounds();
+        GridLayout cg = new GridLayout(c);
+        cg.setColumnCount(5);
         for (int i = 1; i <= 10; i++) {
             final int k = i;
-            boolean on = i <= n;
-            TextView t = U.tv(c, String.valueOf(i), 13, on ? Color.WHITE : Color.rgb(0x8b, 0x96, 0x8c), U.MONO_B);
+            boolean on = i == n;
+            TextView t = U.tv(c, i + "회", 14, on ? Color.WHITE : U.SUB, U.MONO_B);
             t.setGravity(Gravity.CENTER);
-            t.setBackground(on ? U.box(c, U.SIGNAL, 5, U.SIGNAL_DK, 1) : U.box(c, Color.rgb(0xf3, 0xf5, 0xf1), 5, Color.rgb(0xa9, 0xb3, 0xa8), 1));
-            t.setOnClickListener(v -> { pull(h, fields); r.count = String.valueOf(n == k ? 0 : k); rebuild.run(); });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, U.dp(c, 32), 1);
-            p.rightMargin = U.dp(c, 3);
-            cn.addView(t, p);
+            t.setBackground(on ? U.box(c, U.SIGNAL, 6, U.SIGNAL_DK, 1) : U.box(c, Color.rgb(0xf3, 0xf5, 0xf1), 6, Color.rgb(0xa9, 0xb3, 0xa8), 1));
+            t.setOnClickListener(v -> { pull(h, fields); r.count = on ? "" : String.valueOf(k); rebuild.run(); });
+            GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
+            p.width = 0; p.height = U.dp(c, 36);
+            p.setMargins(U.dp(c, 2), U.dp(c, 2), U.dp(c, 2), U.dp(c, 2));
+            cg.addView(t, p);
         }
-        card.addView(cn, U.match());
+        card.addView(cg, U.match());
+        boolean vis = r.visual();
+        TextView vb = U.tv(c, vis ? "✓ 외관확인" : "외관확인", 14.5f, vis ? Color.WHITE : U.INK, U.BOLD);
+        vb.setGravity(Gravity.CENTER);
+        vb.setBackground(vis ? U.box(c, U.OK, 7, U.OK, 0) : U.box(c, Color.rgb(0xf3, 0xf5, 0xf1), 7, Color.rgb(0x8c, 0x96, 0x8b), 1.5f));
+        vb.setOnClickListener(v -> { pull(h, fields); r.count = vis ? "" : Store.HandRow.VISUAL; rebuild.run(); });
+        card.addView(vb, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(c, 40)), c, 2, 4, 2, 0));
 
         // 특이사항
         card.addView(label(c, "특이사항"));
@@ -629,7 +639,7 @@ final class HandoverPages {
         p.setBackgroundColor(Color.rgb(0xfb, 0xfc, 0xfa));
         p.setPadding(U.dp(c, 16), U.dp(c, 14), U.dp(c, 16), U.dp(c, 14));
         LinearLayout t = U.row(c);
-        t.addView(U.tv(c, "H.G 진동연마 · " + label(h.date) + " " + h.shift, 17, U.INK, U.BOLD), U.lpW(1));
+        t.addView(U.tv(c, "H.G 인수인계 " + label(h.date) + " " + h.shift, 17, U.INK, U.BOLD), U.lpW(1));
         p.addView(t);
         p.addView(U.tv(c, "저장 " + U.time(h.savedAt, "M/d HH:mm") + " · " + h.author, 11.5f, U.SUB, null), U.margins(U.match(), c, 0, 3, 0, 0));
         View rule = new View(c);
@@ -638,7 +648,7 @@ final class HandoverPages {
         LinearLayout head = U.row(c);
         head.addView(U.tv(c, "호기", 11, U.SUB, null), new LinearLayout.LayoutParams(U.dp(c, 56), ViewGroup.LayoutParams.WRAP_CONTENT));
         head.addView(U.tv(c, "핀 스펙", 11, U.SUB, null), U.lpW(1));
-        TextView hc = U.tv(c, "가공 횟수", 11, U.SUB, null);
+        TextView hc = U.tv(c, "가공할 횟수", 11, U.SUB, null);
         hc.setGravity(Gravity.END);
         head.addView(hc, U.lpW(1));
         p.addView(head);
@@ -651,10 +661,10 @@ final class HandoverPages {
             row.addView(U.tv(c, r.unit, 18, U.INK, U.BOLD), new LinearLayout.LayoutParams(U.dp(c, 56), ViewGroup.LayoutParams.WRAP_CONTENT));
             LinearLayout spc = U.row(c);
             spc.setGravity(Gravity.CENTER_VERTICAL);
-            spc.addView(U.tv(c, r.spec, 15, U.INK, U.MONO_B));
+            spc.addView(U.tv(c, r.spec.isEmpty() ? "스펙 미입력" : r.spec, r.spec.isEmpty() ? 13 : 15, r.spec.isEmpty() ? Color.rgb(0xa9, 0xb3, 0xa8) : U.INK, r.spec.isEmpty() ? null : U.MONO_B));
             if (!r.state.isEmpty()) spc.addView(Kind.tag(c, r.state, 12), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), c, 6, 0, 0, 0));
             row.addView(spc, U.lpW(1));
-            TextView cnt = U.tv(c, r.rounds() + "회" + (r.live ? " · 진행 중" : ""), 15, r.live ? U.SIGNAL : U.INK, U.MONO_B);
+            TextView cnt = U.tv(c, r.todo(), r.visual() ? 15 : 17, r.visual() ? U.OK : U.INK, r.visual() ? U.BOLD : U.MONO_B);
             cnt.setGravity(Gravity.END);
             row.addView(cnt, U.lpW(1));
             p.addView(row, U.match());
@@ -700,9 +710,9 @@ final class HandoverPages {
     }
 
     private static void shareText(MainActivity a, Store.Handover h) {
-        StringBuilder sb = new StringBuilder("[H.G 진동연마] " + label(h.date) + " " + h.shift + " 인수인계\n");
+        StringBuilder sb = new StringBuilder("[H.G 인수인계] " + label(h.date) + " " + h.shift + "\n");
         for (Store.HandRow r : h.rows) {
-            sb.append(r.unit).append("호기  ").append(r.specLabel()).append("  ").append(r.rounds()).append("회").append(r.live ? " (진행 중)" : "").append('\n');
+            sb.append(r.unit).append("호기  ").append(r.specLabel()).append("  ").append(r.todo()).append('\n');
             if (!r.note.isEmpty()) sb.append("   - ").append(r.note).append('\n');
         }
         if (!h.memo.isEmpty()) sb.append('\n').append(h.memo);
