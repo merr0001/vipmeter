@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** 상황판: 가공 중인 설비를 한눈에 (가공 · 대기 · 멈춤 · 완료), 탭=상세 (다음 회차는 상세 창에서) */
+/** 상황판: 가공 중인 설비를 한눈에 (가공 · 대기 · 멈춤 · 완료), 탭=상세, 꾹=다음 회차 (안내 글 없음) */
 class TimerScreen extends MainActivity.Screen {
 
     static final int[] PRESETS = {1, 3, 5, 10, 20, 30, 60};
@@ -144,7 +144,7 @@ class TimerScreen extends MainActivity.Screen {
                 badge.setBackground(U.box(c, Color.WHITE, 3, Color.WHITE, 0));
                 badge.setTextColor(U.SIGNAL);
                 long since = m.lastEnd > 0 ? now - m.lastEnd : 0;
-                lab.setText(m.doneRounds + "회 끝 · 눌러서 다음 회차");
+                lab.setText(m.doneRounds + "회 끝");
                 time.setText(m.lastEnd > 0 ? U.mmss(since) + " 지남" : "다음 회차");
                 time.setTextSize(22);
                 time.setTextColor(Color.WHITE);
@@ -470,9 +470,9 @@ class TimerScreen extends MainActivity.Screen {
         tick();
     }
 
-    /** 길게 눌러도 누르기와 같음 (다음 회차는 상세 창에서만) */
+    /** 꾹: 대기 카드는 다음 회차 바로 시작 (화면 안내 글은 없음) */
     private void onLong(int unit) {
-        if (multi || true) { onTap(unit); return; }
+        if (multi) { onTap(unit); return; }
         Store.Machine m = Store.machine(a, unit);
         int st = state(m, System.currentTimeMillis());
         if (st == WAIT) {
