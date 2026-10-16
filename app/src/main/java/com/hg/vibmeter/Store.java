@@ -447,7 +447,8 @@ public final class Store {
         }
         writeArr(c, "rounds.json", ra);
         List<Handover> hl = handovers(c);
-        for (Handover h : hl) for (HandRow r : h.rows) if (old.equals(r.spec.trim())) r.spec = nw;
+        String[] nk = Kind.split(nw);
+        for (Handover h : hl) for (HandRow r : h.rows) if (old.equals(r.specLabel().trim())) { r.spec = nk[0]; r.state = nk[1]; }
         saveHandovers(c, hl);
         for (int u = 1; u <= UNITS; u++) {
             Machine m = machine(c, u);
