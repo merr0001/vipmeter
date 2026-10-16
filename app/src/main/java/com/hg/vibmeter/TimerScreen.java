@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** 상황판: 가공 중인 설비를 한눈에 (가공 · 대기 · 멈춤 · 완료), 탭=상세, 꾹=다음 회차 바로 시작 */
+/** 상황판: 가공 중인 설비를 한눈에 (가공 · 대기 · 멈춤 · 완료), 탭=상세 (다음 회차는 상세 창에서) */
 class TimerScreen extends MainActivity.Screen {
 
     static final int[] PRESETS = {1, 3, 5, 10, 20, 30, 60};
@@ -144,7 +144,7 @@ class TimerScreen extends MainActivity.Screen {
                 badge.setBackground(U.box(c, Color.WHITE, 3, Color.WHITE, 0));
                 badge.setTextColor(U.SIGNAL);
                 long since = m.lastEnd > 0 ? now - m.lastEnd : 0;
-                lab.setText(m.doneRounds + "회 끝 · 꾹 = 다음 회차");
+                lab.setText(m.doneRounds + "회 끝 · 눌러서 다음 회차");
                 time.setText(m.lastEnd > 0 ? U.mmss(since) + " 지남" : "다음 회차");
                 time.setTextSize(22);
                 time.setTextColor(Color.WHITE);
@@ -283,7 +283,7 @@ class TimerScreen extends MainActivity.Screen {
         idleBox.addView(idleGrid, U.margins(U.match(), c, 0, 6, 0, 0));
         col.addView(idleBox, U.margins(U.match(), c, 14, 6, 14, 0));
 
-        hint = U.tv(c, "카드 누르기: 상세 · 대기 카드 꾹: 다음 회차 바로 시작 · ☐ 선택: 여러 대", 11.5f, U.SUB, null);
+        hint = U.tv(c, "카드 누르기: 상세 · ☐ 선택: 여러 대", 11.5f, U.SUB, null);
         hint.setPadding(U.dp(c, 16), U.dp(c, 10), U.dp(c, 16), U.dp(c, 16));
         col.addView(hint);
         multiPad = new View(c);
@@ -454,7 +454,7 @@ class TimerScreen extends MainActivity.Screen {
         multiPad.setVisibility(multi ? View.VISIBLE : View.GONE);
         multiInfo.setText(sel.isEmpty() ? "호기를 눌러 고르세요" : selLabel() + " 선택");
         if (act.isEmpty() && !multi) hint.setText("가공 중인 설비가 없습니다 · 아래 번호를 눌러 작업 시작");
-        else hint.setText("카드 누르기: 상세 · 대기 카드 꾹: 다음 회차 바로 시작 · ☐ 선택: 여러 대");
+        else hint.setText("카드 누르기: 상세 · ☐ 선택: 여러 대");
         if (sheetRefresh != null && a.sheetOpen()) sheetRefresh.run();
     }
 
@@ -470,9 +470,9 @@ class TimerScreen extends MainActivity.Screen {
         tick();
     }
 
-    /** 꾹: 대기 카드는 다음 회차 바로 시작 */
+    /** 길게 눌러도 누르기와 같음 (다음 회차는 상세 창에서만) */
     private void onLong(int unit) {
-        if (multi) { onTap(unit); return; }
+        if (multi || true) { onTap(unit); return; }
         Store.Machine m = Store.machine(a, unit);
         int st = state(m, System.currentTimeMillis());
         if (st == WAIT) {
@@ -755,11 +755,7 @@ class TimerScreen extends MainActivity.Screen {
             });
             b.setTextSize(18);
             plan.addView(b, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 60)), a, 0, 4, 0, 4));
-            if (!done) {
-                TextView tip = U.tv(a, "팁: 상황판에서 카드를 꾹 누르면 이 창 없이 바로 시작", 11, U.SUB, null);
-                tip.setGravity(Gravity.CENTER);
-                plan.addView(tip, U.margins(U.match(), a, 0, 0, 0, 4));
-            }
+
         }
         LinearLayout r = U.row(a);
         action(r, "결과 입력", U.INK, x -> { a.closeSheet(); ResultSheet.show(a, unit); });

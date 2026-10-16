@@ -49,10 +49,16 @@ class RecordScreen extends MainActivity.Screen {
         acts.setPadding(U.dp(c, 14), 0, U.dp(c, 14), U.dp(c, 10));
         TextView ho = U.button(c, "인수인계", 2, v -> openHandover());
         acts.addView(ho, new LinearLayout.LayoutParams(0, U.dp(c, 46), 1));
-        TextView ex = U.button(c, "CSV 내보내기", 1, v -> export());
+        TextView ex = U.button(c, "내보내기", 1, v -> export());
+        ex.setTextSize(15);
         LinearLayout.LayoutParams el = new LinearLayout.LayoutParams(0, U.dp(c, 46), 1);
-        el.leftMargin = U.dp(c, 8);
+        el.leftMargin = U.dp(c, 6);
         acts.addView(ex, el);
+        TextView im = U.button(c, "불러오기", 1, v -> pickImport());
+        im.setTextSize(15);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(0, U.dp(c, 46), 1);
+        il.leftMargin = U.dp(c, 6);
+        acts.addView(im, il);
         col.addView(acts);
 
         HorizontalScrollView hs = new HorizontalScrollView(c);
@@ -230,14 +236,17 @@ class RecordScreen extends MainActivity.Screen {
                     U.time(r.time, "yyyy-MM-dd HH:mm:ss"), r.unit, q(r.spec), U.f1(r.setHz), U.f1(r.vRms), r.rounds, r.minutes,
                     U.f1(r.angle), r.rShape, U.f3(r.length), q(r.memo)));
         }
-        String name = "진동속도_" + U.time(System.currentTimeMillis(), "yyyyMMdd_HHmm") + ".csv";
+        sb.append("\n[스펙]\n스펙,목표RMS(mm/s),범위(±)\n");
+        for (Store.Spec s : Store.specs(a))
+            sb.append(q(s.name)).append(',').append(Double.isNaN(s.target) ? "" : U.f1(s.target)).append(',').append(U.f1(s.tol)).append('\n');
+        String name = "진동지기_" + U.time(System.currentTimeMillis(), "yyyyMMdd_HHmm") + ".csv";
         try {
             Uri uri = saveDownload(name, "text/csv", sb.toString().getBytes(StandardCharsets.UTF_8));
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("text/csv");
             share.putExtra(Intent.EXTRA_STREAM, uri);
             share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            a.startActivity(Intent.createChooser(share, "다운로드/VibMeter 에 저장됨 · 보내기"));
+            a.startActivity(Intent.createChooser(share, "다운로드/진동지기 에 저장됨 · 보내기"));
         } catch (Exception e) {
             Toast.makeText(a, "내보내기 실패: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -247,11 +256,195 @@ class RecordScreen extends MainActivity.Screen {
         ContentValues cv = new ContentValues();
         cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
         cv.put(MediaStore.MediaColumns.MIME_TYPE, mime);
-        cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/VibMeter");
+        cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/진동지기");
         Uri uri = a.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
         if (uri == null) throw new IllegalStateException("파일을 만들 수 없습니다");
         try (OutputStream o = a.getContentResolver().openOutputStream(uri)) { o.write(data); }
         return uri;
+    }
+
+    // ---------------- 불러오기 (내보낸 CSV → 기록 · 가공 결과 · 스펙에 적용) ----------------
+    private void pickImport() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/csv", "text/comma-separated-values", "text/plain", "application/vnd.ms-excel", "application/octet-stream"});
+        try { a.startActivityForResult(i, MainActivity.REQ_IMPORT); }
+        catch (Exception e) { Toast.makeText(a, "파일 고르기를 열 수 없습니다", Toast.LENGTH_SHORT).show(); }
+    }
+
+    private static List<String> splitCsv(String line) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQ = false;
+        for (int i = 0; i < line.length(); i++) {
+            char ch = line.charAt(i);
+            if (inQ) {
+                if (ch == '"') {
+                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') { cur.append('"'); i++; }
+                    else inQ = false;
+                } else cur.append(ch);
+            } else if (ch == '"') inQ = true;
+            else if (ch == ',') { out.add(cur.toString()); cur.setLength(0); }
+            else cur.append(ch);
+        }
+        out.add(cur.toString());
+        return out;
+    }
+
+    private static double num(List<String> f, int i) {
+        if (i >= f.size()) return Double.NaN;
+        String s = f.get(i).trim();
+        if (s.isEmpty() || s.equals("—") || s.equals("-")) return Double.NaN;
+        try { return Double.parseDouble(s); } catch (Exception e) { return Double.NaN; }
+    }
+
+    private static String str(List<String> f, int i) { return i < f.size() ? f.get(i).trim() : ""; }
+
+    private static long time(String s) {
+        for (String fmt : new String[]{"yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm:ss", "yyyy/MM/dd HH:mm"}) {
+            try { return new java.text.SimpleDateFormat(fmt, Locale.KOREA).parse(s.trim()).getTime(); } catch (Exception ignored) {}
+        }
+        return -1;
+    }
+
+    void importFile(Uri uri) {
+        String text;
+        try (java.io.InputStream in = a.getContentResolver().openInputStream(uri)) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            text = new String(bo.toByteArray(), StandardCharsets.UTF_8).replace("\uFEFF", "");
+        } catch (Exception e) {
+            Toast.makeText(a, "파일을 읽을 수 없습니다: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        List<Store.Record> recs = new ArrayList<>();
+        List<Store.Result> ress = new ArrayList<>();
+        List<Store.Spec> specs = new ArrayList<>();
+        java.util.Map<String, Double> targets = new java.util.HashMap<>();
+        String sec = "";
+        boolean header = false;
+        for (String raw : text.split("\r?\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            if (line.startsWith("[")) { sec = line; header = true; continue; }
+            if (header) { header = false; continue; }
+            List<String> f = splitCsv(raw);
+            try {
+                if (sec.contains("측정")) {
+                    long t = time(str(f, 0));
+                    int u = (int) num(f, 1);
+                    if (t < 0 || u < 1 || u > Store.UNITS) continue;
+                    Store.Record r = new Store.Record();
+                    r.time = t; r.unit = u; r.spec = str(f, 2);
+                    r.setHz = num(f, 3); r.freq = num(f, 4); r.vRms = num(f, 5);
+                    double tg = num(f, 6);
+                    if (!r.spec.isEmpty() && !Double.isNaN(tg)) targets.put(r.spec, tg);
+                    r.vPeak = num(f, 8); r.zRms = num(f, 9); r.pctX = num(f, 10); r.pctY = num(f, 11);
+                    r.memo = str(f, 12);
+                    if (Double.isNaN(r.freq)) r.freq = Double.isNaN(r.setHz) ? 0 : r.setHz;
+                    if (Double.isNaN(r.vRms)) continue;
+                    if (Double.isNaN(r.zRms) && r.freq > 0) r.zRms = r.vRms * r.freq / Analyzer.K_RMS_MM;
+                    if (Double.isNaN(r.vPeak) && r.freq > 0) r.vPeak = Analyzer.K_PEAK_CM * r.zRms / r.freq;
+                    if (Double.isNaN(r.pctX)) r.pctX = 0;
+                    if (Double.isNaN(r.pctY)) r.pctY = 0;
+                    recs.add(r);
+                } else if (sec.contains("가공")) {
+                    long t = time(str(f, 0));
+                    int u = (int) num(f, 1);
+                    if (t < 0 || u < 1 || u > Store.UNITS) continue;
+                    Store.Result r = new Store.Result();
+                    r.time = t; r.unit = u; r.spec = str(f, 2);
+                    r.setHz = num(f, 3); r.vRms = num(f, 4);
+                    double ro = num(f, 5), mi = num(f, 6);
+                    r.rounds = Double.isNaN(ro) ? 0 : (int) ro;
+                    r.minutes = Double.isNaN(mi) ? 0 : (int) mi;
+                    r.angle = num(f, 7); r.rShape = str(f, 8).replace("—", ""); r.length = num(f, 9);
+                    r.memo = str(f, 10);
+                    ress.add(r);
+                } else if (sec.contains("스펙")) {
+                    String nm = str(f, 0);
+                    if (nm.isEmpty()) continue;
+                    Store.Spec s = new Store.Spec(nm, num(f, 1));
+                    double tl = num(f, 2);
+                    s.tol = Double.isNaN(tl) ? 3 : tl;
+                    specs.add(s);
+                }
+            } catch (Exception ignored) {}
+        }
+        if (recs.isEmpty() && ress.isEmpty() && specs.isEmpty()) {
+            Toast.makeText(a, "불러올 내용이 없습니다 (진동지기에서 내보낸 CSV인지 확인)", Toast.LENGTH_LONG).show();
+            return;
+        }
+        // 미리 세어 보기
+        int newR = 0, updR = 0;
+        java.util.Set<String> have = new java.util.HashSet<>();
+        for (Store.Record r : Store.records(a)) have.add(r.time / 1000 + "/" + r.unit);
+        for (Store.Record r : recs) if (have.contains(r.time / 1000 + "/" + r.unit)) updR++; else newR++;
+        String msg = "측정 " + recs.size() + "건 (새로 " + newR + " · 바뀜 " + updR + ")\n"
+                + "가공 결과 " + ress.size() + "건\n"
+                + "스펙 " + Math.max(specs.size(), targets.size()) + "개\n\n"
+                + "같은 시각 · 같은 호기 기록은 파일 내용으로 바꿉니다. 가이드에 바로 반영됩니다.";
+        new android.app.AlertDialog.Builder(a).setTitle("불러오기")
+                .setMessage(msg)
+                .setPositiveButton("적용", (d, w) -> applyImport(recs, ress, specs, targets))
+                .setNegativeButton("취소", null).show();
+    }
+
+    private void applyImport(List<Store.Record> recs, List<Store.Result> ress, List<Store.Spec> specs, java.util.Map<String, Double> targets) {
+        // 측정 기록
+        List<Store.Record> cur = Store.records(a);
+        java.util.Map<String, Integer> idx = new java.util.HashMap<>();
+        for (int i = 0; i < cur.size(); i++) idx.put(cur.get(i).time / 1000 + "/" + cur.get(i).unit, i);
+        for (Store.Record r : recs) {
+            Integer i = idx.get(r.time / 1000 + "/" + r.unit);
+            if (i != null) { r.fs = cur.get(i).fs; r.edited = cur.get(i).edited; cur.set(i, r); }
+            else { idx.put(r.time / 1000 + "/" + r.unit, cur.size()); cur.add(r); }
+        }
+        cur.sort((x, y) -> Long.compare(x.time, y.time));
+        Store.saveRecords(a, cur);
+        // 가공 결과
+        List<Store.Result> cr = Store.results(a);
+        java.util.Map<String, Integer> ri = new java.util.HashMap<>();
+        for (int i = 0; i < cr.size(); i++) ri.put(cr.get(i).time / 1000 + "/" + cr.get(i).unit, i);
+        for (Store.Result r : ress) {
+            Integer i = ri.get(r.time / 1000 + "/" + r.unit);
+            if (i != null) cr.set(i, r); else { ri.put(r.time / 1000 + "/" + r.unit, cr.size()); cr.add(r); }
+        }
+        cr.sort((x, y) -> Long.compare(x.time, y.time));
+        Store.saveResults(a, cr);
+        // 스펙: 파일의 [스펙] 우선, 없으면 측정 기록의 목표값, 그래도 없으면 목표 미정으로 추가
+        List<Store.Spec> sl = Store.specs(a);
+        for (Store.Spec s : specs) {
+            boolean done = false;
+            for (int i = 0; i < sl.size(); i++) if (sl.get(i).name.equals(s.name)) { sl.set(i, s); done = true; }
+            if (!done) sl.add(s);
+        }
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (Store.Spec s : sl) names.add(s.name);
+        java.util.List<String> used = new ArrayList<>();
+        for (Store.Record r : recs) if (!r.spec.isEmpty() && !used.contains(r.spec)) used.add(r.spec);
+        for (Store.Result r : ress) if (!r.spec.isEmpty() && !used.contains(r.spec)) used.add(r.spec);
+        for (String nm : used) if (!names.contains(nm)) {
+            Double t = targets.get(nm);
+            sl.add(new Store.Spec(nm, t == null ? Double.NaN : t));
+            names.add(nm);
+        }
+        Store.saveSpecs(a, sl);
+        // 호기 설정: 스펙이 비어 있는 호기는 가장 최근 측정의 스펙 · 주파수로
+        for (int u = 1; u <= Store.UNITS; u++) {
+            Store.Machine m = Store.machine(a, u);
+            if (!m.spec.isEmpty()) continue;
+            Store.Record last = Store.lastRecord(cur, u, null);
+            if (last == null) continue;
+            m.spec = last.spec;
+            m.setHz = last.setHz;
+            Store.save(a, m);
+        }
+        Toast.makeText(a, "불러오기 완료 · 측정 " + recs.size() + "건 · 결과 " + ress.size() + "건", Toast.LENGTH_LONG).show();
+        refresh();
     }
 
     // ---------------- 인수인계 (날짜별) ----------------

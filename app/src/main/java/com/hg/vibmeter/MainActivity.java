@@ -106,6 +106,14 @@ public class MainActivity extends Activity {
         showTab(getIntent() != null && getIntent().getBooleanExtra("openTimer", false) ? 1 : Math.min(4, Math.max(0, Store.getInt(this, "tab", 0))));
     }
 
+    static final int REQ_IMPORT = 41;
+
+    @Override
+    protected void onActivityResult(int rq, int rc, Intent d) {
+        super.onActivityResult(rq, rc, d);
+        if (rq == REQ_IMPORT && rc == RESULT_OK && d != null && d.getData() != null) records.importFile(d.getData());
+    }
+
     @Override
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);

@@ -36,9 +36,9 @@ class InfoScreen extends MainActivity.Screen {
         plate.setBackground(U.box(c, U.PLATE, 9, U.RULE, 1.5f));
         LinearLayout pc = U.col(c);
         pc.setPadding(U.dp(c, 24), U.dp(c, 20), U.dp(c, 24), U.dp(c, 18));
-        TextView name = U.tv(c, "진동 속도 계기", 24, U.INK, U.BOLD);
+        TextView name = U.tv(c, "진동지기", 24, U.INK, U.BOLD);
         pc.addView(name);
-        TextView model = U.tv(c, "VIBMETER · v" + ver, 12, U.SIGNAL_DK, U.MONO_B);
+        TextView model = U.tv(c, "JINDONG JIGI · v" + ver, 12, U.SIGNAL_DK, U.MONO_B);
         model.setLetterSpacing(0.12f);
         model.setPadding(0, U.dp(c, 2), 0, U.dp(c, 12));
         pc.addView(model);
