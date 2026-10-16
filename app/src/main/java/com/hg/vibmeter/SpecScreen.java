@@ -396,15 +396,15 @@ class SpecScreen extends MainActivity.Screen {
             String[] xb = Kind.split(x.name);
             if (xb[0].equals(ok[0]) && (orig == null || !x.name.equals(orig.name))) used.add(xb[1].toUpperCase(java.util.Locale.ROOT));
         }
-        String[] opts = new String[Kind.LIST.length + 2];
-        opts[0] = "";
-        System.arraycopy(Kind.LIST, 0, opts, 1, Kind.LIST.length);
+        String[] opts = new String[Kind.LIST.length + 1];
+        System.arraycopy(Kind.LIST, 0, opts, 0, Kind.LIST.length);
         opts[opts.length - 1] = "✎ 직접";
         final int CUSTOM = opts.length - 1;
         int sel0 = -1;
         for (int i = 0; i < opts.length - 1; i++) if (opts[i].equalsIgnoreCase(ok[1])) sel0 = i;
         if (sel0 < 0) sel0 = (orig != null && !ok[1].isEmpty()) ? CUSTOM : -1;
-        if (sel0 < 0) for (int i = 1; i < opts.length - 1; i++) if (!used.contains(opts[i])) { sel0 = i; break; }
+        if (sel0 < 0) for (int i = 0; i < opts.length - 1; i++) if (!used.contains(opts[i])) { sel0 = i; break; }
+        if (sel0 < 0) sel0 = CUSTOM;
         final int[] sel = {sel0};
         EditText custom = f.input(sel0 == CUSTOM ? ok[1] : "", 0, "예: N40");
         custom.setTypeface(U.MONO_B);
@@ -416,8 +416,8 @@ class SpecScreen extends MainActivity.Screen {
         Runnable[] render = new Runnable[1];
         for (int i = 0; i < opts.length; i++) {
             final int k = i;
-            boolean dis = i > 0 && i < CUSTOM && used.contains(opts[i]);
-            TextView t = U.tv(c, i == 0 ? "없음" : opts[i], i == 0 || i == CUSTOM ? 13 : 14.5f, U.INK, i == 0 || i == CUSTOM ? U.BOLD : U.MONO_B);
+            boolean dis = i < CUSTOM && used.contains(opts[i]);
+            TextView t = U.tv(c, opts[i], i == CUSTOM ? 13 : 14.5f, U.INK, i == CUSTOM ? U.BOLD : U.MONO_B);
             t.setGravity(Gravity.CENTER);
             if (dis) { t.setAlpha(0.3f); t.setPaintFlags(t.getPaintFlags() | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG); }
             else t.setOnClickListener(v -> { sel[0] = k; render[0].run(); });
@@ -448,7 +448,7 @@ class SpecScreen extends MainActivity.Screen {
         if (orig != null) pv.addView(U.tv(c, "이전: " + orig.name, 11.5f, U.PHOS_DIM, U.MONO));
         body.addView(pv, U.margins(U.match(), c, 0, 10, 0, 0));
 
-        java.util.function.Supplier<String> kindNow = () -> sel[0] == CUSTOM ? custom.getText().toString() : (sel[0] <= 0 ? "" : opts[sel[0]]);
+        java.util.function.Supplier<String> kindNow = () -> sel[0] == CUSTOM ? custom.getText().toString() : (sel[0] < 0 ? "R" : opts[sel[0]]);
         Runnable upName = () -> {
             String b = baseIn.getText().toString().trim();
             nmv.setText(b.isEmpty() ? "—" : Kind.join(b, kindNow.get()));
@@ -456,10 +456,10 @@ class SpecScreen extends MainActivity.Screen {
         render[0] = () -> {
             for (int i = 0; i < opts.length; i++) {
                 boolean on = i == sel[0];
-                int[] col = Kind.colors(i == 0 || i == CUSTOM ? "" : opts[i]);
+                int[] col = Kind.colors(i == CUSTOM ? "" : opts[i]);
                 kb[i].setBackground(on ? U.box(c, U.SIGNAL, 7, U.SIGNAL_DK, 1)
                         : (i == CUSTOM ? U.dashed(c, Color.WHITE, 7, U.SIGNAL) : U.box(c, Color.rgb(0xe6, 0xea, 0xe3), 7, Color.rgb(0xa9, 0xb3, 0xa8), 1)));
-                kb[i].setTextColor(on ? Color.WHITE : (i == CUSTOM ? U.SIGNAL : (i == 0 ? U.SUB : col[0])));
+                kb[i].setTextColor(on ? Color.WHITE : (i == CUSTOM ? U.SIGNAL : col[0]));
             }
             custom.setVisibility(sel[0] == CUSTOM ? View.VISIBLE : View.GONE);
             upName.run();

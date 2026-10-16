@@ -556,8 +556,52 @@ class TimerScreen extends MainActivity.Screen {
     }
 
     /** 작업 설정: 1회 시간 + 가공 횟수 → 작업 시작 */
-    private View setupPanel(String btnLabel, java.util.function.BiConsumer<Integer, Integer> onStart) {
+    interface StartFn { void go(int n, int min, String spec); }
+
+    static final String KEEP = "호기별 그대로";
+
+    /** 작업 설정: 핀 스펙 + 1회 시간 + 가공 횟수 → 작업 시작 (spec == null 이면 호기별 그대로) */
+    private View setupPanel(String btnLabel, String spec0, boolean keepOpt, StartFn onStart) {
         LinearLayout p = U.col(a);
+        final String[] spec = {spec0 == null || spec0.isEmpty() ? (keepOpt ? KEEP : "") : spec0};
+        p.addView(U.sectionTitle(a, "핀 스펙"));
+        LinearLayout sr = U.row(a);
+        sr.setGravity(Gravity.CENTER_VERTICAL);
+        sr.setPadding(U.dp(a, 12), U.dp(a, 10), U.dp(a, 12), U.dp(a, 10));
+        TextView sb = U.tv(a, "", 18, U.INK, U.MONO_B);
+        TextView kt = U.tv(a, "", 11, U.SUB, U.MONO_B);
+        sr.addView(sb);
+        sr.addView(kt, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 6, 0, 0, 0));
+        sr.addView(new View(a), U.lpW(1));
+        sr.addView(U.tv(a, "▾ 고르기", 12, U.SUB, null));
+        Runnable showSpec = () -> {
+            boolean none = spec[0].isEmpty();
+            boolean keep = KEEP.equals(spec[0]);
+            String[] sk = Kind.split(spec[0]);
+            sb.setText(none ? "눌러서 핀 스펙 고르기" : keep ? KEEP : sk[0]);
+            sb.setTextSize(none || keep ? 15 : 18);
+            sb.setTextColor(none ? U.BAD : U.INK);
+            if (!none && !keep && !sk[1].isEmpty()) {
+                int[] col = Kind.colors(sk[1]);
+                kt.setText(sk[1]);
+                kt.setTextColor(col[0]);
+                kt.setBackground(U.box(a, col[1], 3, col[1], 0));
+                kt.setPadding(U.dp(a, 5), U.dp(a, 1), U.dp(a, 5), U.dp(a, 1));
+                kt.setVisibility(View.VISIBLE);
+            } else kt.setVisibility(View.GONE);
+            sr.setBackground(none ? U.dashed(a, Color.WHITE, 8, U.BAD) : U.box(a, Color.WHITE, 8, U.INK, 2));
+        };
+        sr.setOnClickListener(v -> {
+            List<String> opts = new ArrayList<>();
+            if (keepOpt) opts.add(KEEP);
+            for (Store.Spec x : Store.specs(a)) opts.add(x.name);
+            String[] arr = opts.toArray(new String[0]);
+            new android.app.AlertDialog.Builder(a).setTitle("핀 스펙 고르기")
+                    .setSingleChoiceItems(arr, opts.indexOf(spec[0]), (d, w) -> { spec[0] = arr[w]; showSpec.run(); d.dismiss(); })
+                    .setNegativeButton("취소", null).show();
+        });
+        showSpec.run();
+        p.addView(sr, U.margins(U.match(), a, 3, 0, 3, 12));
         int[] v = {Store.getInt(a, "planN", 5), Store.getInt(a, "roundMin", 20)};
         TextView sum = U.tv(a, "", 13, U.SUB, U.MONO_B);
         Runnable upd = () -> sum.setText(v[0] + "회 × " + v[1] + "분 = 총 " + (v[0] * v[1]) + "분");
@@ -580,9 +624,10 @@ class TimerScreen extends MainActivity.Screen {
         p.addView(sum);
         upd.run();
         TextView go = U.button(a, btnLabel, 0, x -> {
+            if (spec[0].isEmpty()) { Toast.makeText(a, "핀 스펙을 고르세요", Toast.LENGTH_SHORT).show(); sr.performClick(); return; }
             Store.putInt(a, "planN", v[0]);
             Store.putInt(a, "roundMin", v[1]);
-            onStart.accept(v[0], v[1]);
+            onStart.go(v[0], v[1], KEEP.equals(spec[0]) ? null : spec[0]);
         });
         p.addView(go, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 56)), a, 0, 12, 0, 0));
         return p;
@@ -648,7 +693,8 @@ class TimerScreen extends MainActivity.Screen {
                 planSig = -1;
                 dyn.removeAllViews();
                 if (md == 0) {
-                    dyn.addView(setupPanel("작업 시작", (n, min) -> {
+                    dyn.addView(setupPanel("작업 시작", m.spec, false, (n, min, sp) -> {
+                        setSpec(unit, sp);
                         TimerCenter.startPlan(a, unit, n, min);
                         a.closeSheet();
                         Toast.makeText(a, unit + "호기 작업 시작 (" + n + "회 × " + min + "분)", Toast.LENGTH_SHORT).show();
@@ -800,13 +846,21 @@ class TimerScreen extends MainActivity.Screen {
     private void multiStart() {
         if (sel.isEmpty()) return;
         LinearLayout s = a.sheetBox(sel.size() + "대 작업 시작", selLabel());
-        s.addView(setupPanel(sel.size() + "대 작업 시작", (n, min) -> {
-            for (int u : sel) TimerCenter.startPlan(a, u, n, min);
+        s.addView(setupPanel(sel.size() + "대 작업 시작", null, true, (n, min, sp) -> {
+            for (int u : sel) { if (sp != null) setSpec(u, sp); TimerCenter.startPlan(a, u, n, min); }
             Toast.makeText(a, sel.size() + "대 작업 시작 (" + n + "회 × " + min + "분)", Toast.LENGTH_LONG).show();
             exitMulti();
         }), U.match());
         sheetRefresh = null;
         a.showSheet(s, null);
+    }
+
+    private void setSpec(int unit, String sp) {
+        if (sp == null) return;
+        Store.Machine m = Store.machine(a, unit);
+        if (sp.equals(m.spec)) return;
+        m.spec = sp;
+        Store.save(a, m);
     }
 
     private void multiPause() {

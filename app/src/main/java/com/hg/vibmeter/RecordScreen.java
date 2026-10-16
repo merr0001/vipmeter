@@ -222,7 +222,21 @@ class RecordScreen extends MainActivity.Screen {
     }
 
     private void export() {
-        StringBuilder sb = new StringBuilder("﻿");
+        String name = "진동지기_" + U.time(System.currentTimeMillis(), "yyyyMMdd_HHmm") + ".csv";
+        try {
+            Uri uri = saveDownload(name, "text/csv", buildCsv().getBytes(StandardCharsets.UTF_8));
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/csv");
+            share.putExtra(Intent.EXTRA_STREAM, uri);
+            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            a.startActivity(Intent.createChooser(share, "다운로드/진동지기 에 저장됨 · 보내기"));
+        } catch (Exception e) {
+            Toast.makeText(a, "내보내기 실패: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String buildCsv() {
+        StringBuilder sb = new StringBuilder("\uFEFF");
         sb.append("[측정 기록]\n일시,호기,스펙,설정주파수(Hz),실측주파수(Hz),진동속도RMS(mm/s),목표,판정,피크(cm/s),Z RMS(m/s2),X/Z(%),Y/Z(%),메모\n");
         for (Store.Record r : Store.records(a)) {
             Store.Spec s = Store.spec(a, r.spec);
@@ -239,17 +253,7 @@ class RecordScreen extends MainActivity.Screen {
         sb.append("\n[스펙]\n스펙,목표RMS(mm/s),범위(±)\n");
         for (Store.Spec s : Store.specs(a))
             sb.append(q(s.name)).append(',').append(Double.isNaN(s.target) ? "" : U.f1(s.target)).append(',').append(U.f1(s.tol)).append('\n');
-        String name = "진동지기_" + U.time(System.currentTimeMillis(), "yyyyMMdd_HHmm") + ".csv";
-        try {
-            Uri uri = saveDownload(name, "text/csv", sb.toString().getBytes(StandardCharsets.UTF_8));
-            Intent share = new Intent(Intent.ACTION_SEND);
-            share.setType("text/csv");
-            share.putExtra(Intent.EXTRA_STREAM, uri);
-            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            a.startActivity(Intent.createChooser(share, "다운로드/진동지기 에 저장됨 · 보내기"));
-        } catch (Exception e) {
-            Toast.makeText(a, "내보내기 실패: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
+        return sb.toString();
     }
 
     private Uri saveDownload(String name, String mime, byte[] data) throws Exception {
@@ -378,50 +382,42 @@ class RecordScreen extends MainActivity.Screen {
             Toast.makeText(a, "불러올 내용이 없습니다 (진동지기에서 내보낸 CSV인지 확인)", Toast.LENGTH_LONG).show();
             return;
         }
-        // 미리 세어 보기
-        int newR = 0, updR = 0;
-        java.util.Set<String> have = new java.util.HashSet<>();
-        for (Store.Record r : Store.records(a)) have.add(r.time / 1000 + "/" + r.unit);
-        for (Store.Record r : recs) if (have.contains(r.time / 1000 + "/" + r.unit)) updR++; else newR++;
-        String msg = "측정 " + recs.size() + "건 (새로 " + newR + " · 바뀜 " + updR + ")\n"
-                + "가공 결과 " + ress.size() + "건\n"
-                + "스펙 " + Math.max(specs.size(), targets.size()) + "개\n\n"
-                + "같은 시각 · 같은 호기 기록은 파일 내용으로 바꿉니다. 가이드에 바로 반영됩니다.";
+        int oldR = Store.records(a).size(), oldS = Store.results(a).size();
+        String msg = "파일: 측정 " + recs.size() + "건 · 가공 결과 " + ress.size() + "건 · 스펙 " + specs.size() + "개\n\n"
+                + "지금 폰의 측정 " + oldR + "건 · 가공 결과 " + oldS + "건" + (specs.isEmpty() ? "" : " · 스펙") + "은 지우고 파일 내용으로 바꿉니다.\n\n"
+                + "지우기 전 데이터는 다운로드/진동지기 에 백업 파일로 저장됩니다. 가이드에 바로 반영됩니다.";
         new android.app.AlertDialog.Builder(a).setTitle("불러오기")
                 .setMessage(msg)
-                .setPositiveButton("적용", (d, w) -> applyImport(recs, ress, specs, targets))
+                .setPositiveButton("백업 후 바꾸기", (d, w) -> applyImport(recs, ress, specs, targets))
                 .setNegativeButton("취소", null).show();
     }
 
     private void applyImport(List<Store.Record> recs, List<Store.Result> ress, List<Store.Spec> specs, java.util.Map<String, Double> targets) {
-        // 측정 기록
-        List<Store.Record> cur = Store.records(a);
-        java.util.Map<String, Integer> idx = new java.util.HashMap<>();
-        for (int i = 0; i < cur.size(); i++) idx.put(cur.get(i).time / 1000 + "/" + cur.get(i).unit, i);
-        for (Store.Record r : recs) {
-            Integer i = idx.get(r.time / 1000 + "/" + r.unit);
-            if (i != null) { r.fs = cur.get(i).fs; r.edited = cur.get(i).edited; cur.set(i, r); }
-            else { idx.put(r.time / 1000 + "/" + r.unit, cur.size()); cur.add(r); }
+        // 1) 지금 데이터 백업 (불러오기로 되돌릴 수 있는 같은 CSV 형식)
+        String stamp = U.time(System.currentTimeMillis(), "yyyyMMdd_HHmmss");
+        String backup = buildCsv();
+        String where;
+        try {
+            saveDownload("진동지기_백업_" + stamp + ".csv", "text/csv", backup.getBytes(StandardCharsets.UTF_8));
+            where = "다운로드/진동지기/진동지기_백업_" + stamp + ".csv";
+        } catch (Exception e) {
+            where = null;
         }
-        cur.sort((x, y) -> Long.compare(x.time, y.time));
-        Store.saveRecords(a, cur);
-        // 가공 결과
-        List<Store.Result> cr = Store.results(a);
-        java.util.Map<String, Integer> ri = new java.util.HashMap<>();
-        for (int i = 0; i < cr.size(); i++) ri.put(cr.get(i).time / 1000 + "/" + cr.get(i).unit, i);
-        for (Store.Result r : ress) {
-            Integer i = ri.get(r.time / 1000 + "/" + r.unit);
-            if (i != null) cr.set(i, r); else { ri.put(r.time / 1000 + "/" + r.unit, cr.size()); cr.add(r); }
+        try {
+            java.io.File dir = new java.io.File(a.getFilesDir(), "backup");
+            dir.mkdirs();
+            java.nio.file.Files.write(new java.io.File(dir, "backup_" + stamp + ".csv").toPath(), backup.getBytes(StandardCharsets.UTF_8));
+            if (where == null) where = "앱 내부 backup 폴더";
+        } catch (Exception e) {
+            if (where == null) { Toast.makeText(a, "백업 실패 — 불러오기를 멈췄습니다", Toast.LENGTH_LONG).show(); return; }
         }
-        cr.sort((x, y) -> Long.compare(x.time, y.time));
-        Store.saveResults(a, cr);
-        // 스펙: 파일의 [스펙] 우선, 없으면 측정 기록의 목표값, 그래도 없으면 목표 미정으로 추가
-        List<Store.Spec> sl = Store.specs(a);
-        for (Store.Spec s : specs) {
-            boolean done = false;
-            for (int i = 0; i < sl.size(); i++) if (sl.get(i).name.equals(s.name)) { sl.set(i, s); done = true; }
-            if (!done) sl.add(s);
-        }
+        // 2) 측정 기록 · 가공 결과: 파일 내용으로 바꿈
+        recs.sort((x, y) -> Long.compare(x.time, y.time));
+        ress.sort((x, y) -> Long.compare(x.time, y.time));
+        Store.saveRecords(a, recs);
+        Store.saveResults(a, ress);
+        // 3) 스펙: 파일에 [스펙]이 있으면 그것으로 바꿈, 없으면 지금 스펙 유지
+        List<Store.Spec> sl = specs.isEmpty() ? Store.specs(a) : new ArrayList<>(specs);
         java.util.Set<String> names = new java.util.HashSet<>();
         for (Store.Spec s : sl) names.add(s.name);
         java.util.List<String> used = new ArrayList<>();
@@ -433,17 +429,20 @@ class RecordScreen extends MainActivity.Screen {
             names.add(nm);
         }
         Store.saveSpecs(a, sl);
-        // 호기 설정: 스펙이 비어 있는 호기는 가장 최근 측정의 스펙 · 주파수로
+        // 4) 호기 설정: 스펙이 비어 있는 호기는 가장 최근 측정의 스펙 · 주파수로
         for (int u = 1; u <= Store.UNITS; u++) {
             Store.Machine m = Store.machine(a, u);
             if (!m.spec.isEmpty()) continue;
-            Store.Record last = Store.lastRecord(cur, u, null);
+            Store.Record last = Store.lastRecord(recs, u, null);
             if (last == null) continue;
             m.spec = last.spec;
             m.setHz = last.setHz;
             Store.save(a, m);
         }
-        Toast.makeText(a, "불러오기 완료 · 측정 " + recs.size() + "건 · 결과 " + ress.size() + "건", Toast.LENGTH_LONG).show();
+        new android.app.AlertDialog.Builder(a).setTitle("불러오기 완료")
+                .setMessage("측정 " + recs.size() + "건 · 가공 결과 " + ress.size() + "건으로 바꿨습니다.\n\n이전 데이터 백업:\n" + where
+                        + "\n\n되돌리려면 이 백업 파일을 불러오기 하세요.")
+                .setPositiveButton("확인", null).show();
         refresh();
     }
 

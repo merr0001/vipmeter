@@ -460,6 +460,27 @@ public final class Store {
         }
     }
 
+    /** v2.8 한 번만: 종류 없는 스펙(예: 48-20)은 R 가공으로 (48-20 R) */
+    public static void migrateKindR(Context c) {
+        if (sp(c).getBoolean("kindR_v28", false)) return;
+        List<Spec> l = specs(c);
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (Spec s : l) names.add(s.name);
+        List<Spec> out = new ArrayList<>();
+        for (Spec s : l) {
+            String[] k = Kind.split(s.name);
+            if (!k[1].isEmpty() || k[0].isEmpty()) { out.add(s); continue; }
+            String nw = k[0] + " R";
+            renameSpec(c, s.name, nw);
+            if (names.contains(nw)) continue;      // 이미 R 이 있으면 합침
+            s.name = nw;
+            names.add(nw);
+            out.add(s);
+        }
+        saveSpecs(c, out);
+        sp(c).edit().putBoolean("kindR_v28", true).commit();
+    }
+
     /** v2.3 한 번만: 목표 범위를 벗어난(높음·낮음) 측정 기록 지우기 */
     public static void cleanOutOfRangeOnce(Context c) {
         if (sp(c).getBoolean("clean_v23", false)) return;
