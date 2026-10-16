@@ -483,7 +483,7 @@ final class HandoverPages {
             sp.setBackground(U.box(c, Color.WHITE, 7, U.INK, 2));
             sp.addView(U.tv(c, r.spec, 18, U.INK, U.MONO_B));
             if (!r.state.isEmpty()) sp.addView(Kind.tag(c, r.state, 11), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), c, 6, 0, 0, 0));
-            sp.addView(new View(c), U.lpW(1));
+            sp.addView(new View(c), new LinearLayout.LayoutParams(0, 1, 1));
             sp.addView(U.tv(c, "▾ 바꾸기", 11, U.SUB, null));
         }
         sp.setOnClickListener(v -> { pull(h, fields); pickSpec(a, r, rebuild); });

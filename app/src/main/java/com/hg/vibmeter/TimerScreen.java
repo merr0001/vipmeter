@@ -70,7 +70,7 @@ class TimerScreen extends MainActivity.Screen {
             TextView ho = U.tv(c, "호기", 10, U.PHOS_DIM, null);
             ho.setPadding(U.dp(c, 1), U.dp(c, 5), 0, 0);
             t1.addView(ho);
-            t1.addView(new View(c), U.lpW(1));
+            t1.addView(new View(c), new LinearLayout.LayoutParams(0, 1, 1));
             LinearLayout sp = U.row(c);
             sp.setGravity(Gravity.CENTER_VERTICAL);
             sp.setBackground(U.box(c, U.PLATE, 4, U.PLATE, 0));
@@ -244,7 +244,7 @@ class TimerScreen extends MainActivity.Screen {
         sWait = chip(sum, U.SIGNAL, Color.WHITE);
         sPause = chip(sum, Color.rgb(0xe8, 0xc0, 0x6a), U.SCREEN);
         sDone = chip(sum, U.OK, Color.WHITE);
-        sum.addView(new View(c), U.lpW(1));
+        sum.addView(new View(c), new LinearLayout.LayoutParams(0, 1, 1));
         selBtn = U.tv(c, "☐ 선택", 13, U.INK, U.BOLD);
         selBtn.setBackground(U.box(c, U.PLATE, 6, U.INK, 1.5f));
         selBtn.setPadding(U.dp(c, 10), U.dp(c, 5), U.dp(c, 10), U.dp(c, 5));
@@ -572,7 +572,7 @@ class TimerScreen extends MainActivity.Screen {
         TextView kt = U.tv(a, "", 11, U.SUB, U.MONO_B);
         sr.addView(sb);
         sr.addView(kt, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 6, 0, 0, 0));
-        sr.addView(new View(a), U.lpW(1));
+        sr.addView(new View(a), new LinearLayout.LayoutParams(0, 1, 1));
         sr.addView(U.tv(a, "▾ 고르기", 12, U.SUB, null));
         Runnable showSpec = () -> {
             boolean none = spec[0].isEmpty();
