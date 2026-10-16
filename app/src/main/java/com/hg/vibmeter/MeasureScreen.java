@@ -46,6 +46,13 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
     private boolean lastValid;
     private long lastAnalyze;
 
+    // 원본 기록 (Phyphox 형식 zip): 측정 시작 또는 직전 기록 이후 전체
+    private static final int RAW_CAP = 120000;
+    private final long[] rt = new long[RAW_CAP];
+    private final float[] rx = new float[RAW_CAP], ry = new float[RAW_CAP], rz = new float[RAW_CAP];
+    private int rHead = 0, rCount = 0;
+    private long rStartWall;
+
     int unit;
     private TextView tvUnit, tvSpec, tvStatus, tvTarget, tvFreq, tvZ, tvPeak, tvTimer, tvFs, tvX, tvY;
     private EditText etHz, etMemo;
@@ -265,7 +272,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
     // ---------------- 측정 ----------------
     private void start() {
         if (acc == null) { Toast.makeText(a, "가속도 센서를 찾지 못했습니다", Toast.LENGTH_LONG).show(); return; }
-        synchronized (lock) { head = 0; count = 0; }
+        synchronized (lock) { head = 0; count = 0; rHead = 0; rCount = 0; rStartWall = System.currentTimeMillis(); }
         recent.clear();
         gauge.hist.clear();
         sm.registerListener(this, acc, SensorManager.SENSOR_DELAY_FASTEST);
@@ -290,6 +297,9 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
             bt[head] = e.timestamp; bx[head] = e.values[0]; by[head] = e.values[1]; bz[head] = e.values[2];
             head = (head + 1) % CAP;
             if (count < CAP) count++;
+            rt[rHead] = e.timestamp; rx[rHead] = e.values[0]; ry[rHead] = e.values[1]; rz[rHead] = e.values[2];
+            rHead = (rHead + 1) % RAW_CAP;
+            if (rCount < RAW_CAP) rCount++;
         }
     }
     @Override public void onAccuracyChanged(Sensor s, int a) {}
@@ -397,6 +407,21 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         if (!stable()) r.memo = (r.memo.isEmpty() ? "" : r.memo + " · ") + "불안정할 때 기록";
         Store.addRecord(a, r);
         etMemo.setText("");
-        Toast.makeText(a, String.format(Locale.US, "%d호기 %.1f mm/s 기록", unit, r.vRms), Toast.LENGTH_SHORT).show();
+        // 원본 꺼내고 다음 측정을 위해 비움
+        long[] t; float[] x, y, z; int n; long wall0;
+        synchronized (lock) {
+            n = rCount;
+            t = new long[n]; x = new float[n]; y = new float[n]; z = new float[n];
+            int st = (rHead - rCount + RAW_CAP) % RAW_CAP;
+            for (int i = 0; i < n; i++) {
+                int k = (st + i) % RAW_CAP;
+                t[i] = rt[k]; x[i] = rx[k]; y[i] = ry[k]; z[i] = rz[k];
+            }
+            wall0 = rStartWall;
+            rHead = 0; rCount = 0; rStartWall = System.currentTimeMillis();
+        }
+        boolean stab = stable();
+        RawExport.saveAsync(a, r, stab, t, x, y, z, n, wall0, acc);
+        Toast.makeText(a, String.format(Locale.US, "%d호기 %.1f mm/s 기록 · 원본 저장 중", unit, r.vRms), Toast.LENGTH_SHORT).show();
     }
 }
