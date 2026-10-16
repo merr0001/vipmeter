@@ -104,8 +104,12 @@ final class HandoverPages {
         for (int u : cnt.keySet()) {
             Store.HandRow r = new Store.HandRow();
             r.unit = String.valueOf(u);
-            r.spec = spec.get(u) == null || spec.get(u).isEmpty() ? Store.machine(c, u).spec : spec.get(u);
-            r.count = cnt.get(u)[0] + "회" + (live.contains(u) ? " · 진행 중" : "");
+            String full = spec.get(u) == null || spec.get(u).isEmpty() ? Store.machine(c, u).spec : spec.get(u);
+            String[] sk = Kind.split(full);
+            r.spec = sk[0];
+            r.state = sk[1];
+            r.count = String.valueOf(cnt.get(u)[0]);
+            r.live = live.contains(u);
             l.add(r);
         }
         return l;
@@ -113,10 +117,7 @@ final class HandoverPages {
 
     static int totalRounds(Store.Handover h) {
         int t = 0;
-        for (Store.HandRow r : h.rows) {
-            String s = r.count.replaceAll("[^0-9].*$", "");
-            try { t += Integer.parseInt(s); } catch (Exception ignored) {}
-        }
+        for (Store.HandRow r : h.rows) t += r.rounds();
         return t;
     }
 
@@ -290,7 +291,7 @@ final class HandoverPages {
         StringBuilder sb = new StringBuilder();
         for (Store.HandRow r : h.rows) {
             if (sb.length() > 0) sb.append("  ·  ");
-            sb.append(r.unit).append("호기 ").append(r.spec).append(" ").append(r.count);
+            sb.append(r.unit).append("호기 ").append(r.specLabel()).append(" ").append(r.rounds()).append("회");
         }
         if (sb.length() > 0) card.addView(U.tv(c, sb.toString(), 12, U.INK, U.MONO), U.margins(U.match(), c, 0, 6, 0, 0));
         if (!h.memo.isEmpty()) {
@@ -366,12 +367,6 @@ final class HandoverPages {
         View rule = new View(c);
         rule.setBackgroundColor(U.INK);
         paper.addView(rule, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(c, 2)), c, 0, 6, 0, 4));
-        LinearLayout head = U.row(c);
-        head.addView(U.tv(c, "호기", 10.5f, U.SUB, null), new LinearLayout.LayoutParams(U.dp(c, 52), ViewGroup.LayoutParams.WRAP_CONTENT));
-        head.addView(U.tv(c, "핀 스펙", 10.5f, U.SUB, null), U.lpW(1));
-        head.addView(U.tv(c, "가공 횟수", 10.5f, U.SUB, null), new LinearLayout.LayoutParams(U.dp(c, 116), ViewGroup.LayoutParams.WRAP_CONTENT));
-        head.addView(new View(c), new LinearLayout.LayoutParams(U.dp(c, 30), 1));
-        paper.addView(head);
         LinearLayout rowsBox = U.col(c);
         paper.addView(rowsBox, U.match());
         List<EditText[]> fields = new ArrayList<>();
@@ -379,13 +374,14 @@ final class HandoverPages {
         rebuild[0] = () -> {
             rowsBox.removeAllViews();
             fields.clear();
-            for (Store.HandRow r : h.rows) addRowView(c, rowsBox, fields, h, r, rebuild[0]);
+            for (Store.HandRow r : h.rows) addRowView(a, rowsBox, fields, h, r, rebuild[0]);
             if (h.rows.isEmpty()) rowsBox.addView(U.tv(c, "가공한 호기가 없습니다 · 아래에서 줄을 추가하세요", 12, U.SUB, null), U.margins(U.match(), c, 0, 8, 0, 8));
         };
         rebuild[0].run();
         LinearLayout rowActs = U.row(c);
         TextView add = smallBtn(c, "+ 줄 추가");
         add.setOnClickListener(v -> { pull(h, fields); h.rows.add(new Store.HandRow()); rebuild[0].run(); });
+        add.setText("+ 호기 추가");
         rowActs.addView(add, new LinearLayout.LayoutParams(0, U.dp(c, 40), 1));
         TextView auto = smallBtn(c, "타이머 기록으로 다시 채우기");
         auto.setOnClickListener(v -> new android.app.AlertDialog.Builder(a)
@@ -461,21 +457,149 @@ final class HandoverPages {
         return b;
     }
 
-    private static void addRowView(Context c, LinearLayout box, List<EditText[]> fields, Store.Handover h, Store.HandRow r, Runnable rebuild) {
-        LinearLayout row = U.row(c);
-        EditText u = cellEdit(c, r.unit, InputType.TYPE_CLASS_NUMBER, 18, true);
-        EditText s = cellEdit(c, r.spec, InputType.TYPE_CLASS_TEXT, 15, false);
-        EditText n = cellEdit(c, r.count, InputType.TYPE_CLASS_TEXT, 15, false);
-        u.setHint("호기"); s.setHint("스펙"); n.setHint("예: 5회");
-        row.addView(u, new LinearLayout.LayoutParams(U.dp(c, 52), ViewGroup.LayoutParams.WRAP_CONTENT));
-        row.addView(s, U.lpW(1));
-        row.addView(n, new LinearLayout.LayoutParams(U.dp(c, 116), ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView x = U.tv(c, "✕", 16, U.BAD, U.BOLD);
+    /** 인수인계 카드 한 장: 호기 · 핀 스펙(가이드에서 고르기) · 상태 · 가공 횟수(최대 10) · 특이사항 */
+    private static void addRowView(MainActivity a, LinearLayout box, List<EditText[]> fields, Store.Handover h, Store.HandRow r, Runnable rebuild) {
+        Context c = a;
+        LinearLayout card = U.col(c);
+        card.setBackground(U.box(c, U.PLATE, 9, U.RULE, 1));
+        card.setPadding(U.dp(c, 10), U.dp(c, 8), U.dp(c, 10), U.dp(c, 10));
+        // 1줄: 호기 + 핀 스펙 + ✕
+        LinearLayout r1 = U.row(c);
+        r1.setGravity(Gravity.CENTER_VERTICAL);
+        EditText u = cellEdit(c, r.unit, InputType.TYPE_CLASS_NUMBER, 20, true);
+        u.setHint("호기");
+        u.setGravity(Gravity.CENTER);
+        r1.addView(u, new LinearLayout.LayoutParams(U.dp(c, 46), ViewGroup.LayoutParams.WRAP_CONTENT));
+        r1.addView(U.tv(c, "호기", 11, U.SUB, null));
+        LinearLayout sp = U.row(c);
+        sp.setGravity(Gravity.CENTER_VERTICAL);
+        sp.setPadding(U.dp(c, 10), U.dp(c, 8), U.dp(c, 10), U.dp(c, 8));
+        if (r.spec.isEmpty()) {
+            sp.setBackground(U.dashed(c, Color.WHITE, 7, Color.rgb(0x8c, 0x96, 0x8b)));
+            sp.addView(U.tv(c, "눌러서 핀 스펙 고르기", 14, Color.rgb(0x8c, 0x96, 0x8b), U.BOLD), U.lpW(1));
+        } else {
+            sp.setBackground(U.box(c, Color.WHITE, 7, U.INK, 2));
+            sp.addView(U.tv(c, r.spec, 18, U.INK, U.MONO_B));
+            if (!r.state.isEmpty()) sp.addView(Kind.tag(c, r.state, 11), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), c, 6, 0, 0, 0));
+            sp.addView(new View(c), U.lpW(1));
+            sp.addView(U.tv(c, "▾ 바꾸기", 11, U.SUB, null));
+        }
+        sp.setOnClickListener(v -> { pull(h, fields); pickSpec(a, r, rebuild); });
+        LinearLayout.LayoutParams spl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        spl.leftMargin = U.dp(c, 8);
+        r1.addView(sp, spl);
+        TextView x = U.tv(c, "✕", 17, Color.rgb(0x9a, 0xa4, 0x9a), U.BOLD);
         x.setGravity(Gravity.CENTER);
         x.setOnClickListener(v -> { pull(h, fields); int idx = h.rows.indexOf(r); if (idx >= 0) h.rows.remove(idx); rebuild.run(); });
-        row.addView(x, new LinearLayout.LayoutParams(U.dp(c, 30), U.dp(c, 40)));
-        box.addView(row, U.match());
-        fields.add(new EditText[]{u, s, n});
+        r1.addView(x, new LinearLayout.LayoutParams(U.dp(c, 34), U.dp(c, 40)));
+        card.addView(r1, U.match());
+
+        // 상태
+        card.addView(label(c, "상태"));
+        LinearLayout st = U.row(c);
+        List<String> kinds = new ArrayList<>(java.util.Arrays.asList(Kind.LIST));
+        if (!r.state.isEmpty() && Kind.order(r.state) == 50) kinds.add(r.state);
+        for (String k : kinds) {
+            boolean on = k.equalsIgnoreCase(r.state);
+            TextView t = U.tv(c, k, 12.5f, on ? U.PLATE : U.INK, U.MONO_B);
+            t.setGravity(Gravity.CENTER);
+            t.setBackground(on ? U.box(c, U.INK, 6, U.INK, 0) : U.box(c, Color.rgb(0xf3, 0xf5, 0xf1), 6, Color.rgb(0xa9, 0xb3, 0xa8), 1));
+            t.setOnClickListener(v -> { pull(h, fields); r.state = on ? "" : k; rebuild.run(); });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, U.dp(c, 34), 1);
+            p.rightMargin = U.dp(c, 3);
+            st.addView(t, p);
+        }
+        card.addView(st, U.match());
+
+        // 가공 횟수 1~10
+        card.addView(label(c, r.live ? "가공 횟수 · 진행 중" : "가공 횟수"));
+        LinearLayout cn = U.row(c);
+        int n = r.rounds();
+        for (int i = 1; i <= 10; i++) {
+            final int k = i;
+            boolean on = i <= n;
+            TextView t = U.tv(c, String.valueOf(i), 13, on ? Color.WHITE : Color.rgb(0x8b, 0x96, 0x8c), U.MONO_B);
+            t.setGravity(Gravity.CENTER);
+            t.setBackground(on ? U.box(c, U.SIGNAL, 5, U.SIGNAL_DK, 1) : U.box(c, Color.rgb(0xf3, 0xf5, 0xf1), 5, Color.rgb(0xa9, 0xb3, 0xa8), 1));
+            t.setOnClickListener(v -> { pull(h, fields); r.count = String.valueOf(n == k ? 0 : k); rebuild.run(); });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, U.dp(c, 32), 1);
+            p.rightMargin = U.dp(c, 3);
+            cn.addView(t, p);
+        }
+        card.addView(cn, U.match());
+
+        // 특이사항
+        card.addView(label(c, "특이사항"));
+        EditText note = new EditText(c);
+        note.setText(r.note);
+        note.setHint("예: 좌우 2회 남음 · 각도 44°");
+        note.setSingleLine(true);
+        note.setTextSize(14);
+        note.setBackground(U.box(c, Color.WHITE, 6, U.DASH, 1));
+        note.setPadding(U.dp(c, 10), U.dp(c, 8), U.dp(c, 10), U.dp(c, 8));
+        card.addView(note, U.match());
+
+        box.addView(card, U.margins(U.match(), c, 0, 0, 0, 8));
+        fields.add(new EditText[]{u, note});
+    }
+
+    private static TextView label(Context c, String t) {
+        TextView v = U.tv(c, t, 11, U.SUB, null);
+        v.setPadding(U.dp(c, 2), U.dp(c, 8), 0, U.dp(c, 4));
+        return v;
+    }
+
+    /** 가이드에 등록된 스펙에서 고르기 (직경-전장별 묶음) */
+    private static void pickSpec(MainActivity a, Store.HandRow r, Runnable rebuild) {
+        Context c = a;
+        LinearLayout s = a.sheetBox((r.unit.isEmpty() ? "" : r.unit + "호기 ") + "핀 스펙", "가이드에 등록된 스펙");
+        String recent = "";
+        try { recent = Store.machine(c, Integer.parseInt(r.unit.trim())).spec; } catch (Exception ignored) {}
+        if (!recent.isEmpty()) {
+            TextView rt = U.tv(c, "● 초록 테두리 = 이 호기에 설정된 스펙", 11, U.OK, U.BOLD);
+            rt.setPadding(0, 0, 0, U.dp(c, 6));
+            s.addView(rt);
+        }
+        ScrollView sv = new ScrollView(c);
+        LinearLayout body = U.col(c);
+        sv.addView(body);
+        String cur = r.specLabel();
+        for (java.util.Map.Entry<String, List<Store.Spec>> e : SpecScreen.groups(Store.specs(c)).entrySet()) {
+            LinearLayout row = U.row(c);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, U.dp(c, 6), 0, U.dp(c, 6));
+            row.addView(U.tv(c, e.getKey(), 17, U.INK, U.MONO_B), new LinearLayout.LayoutParams(U.dp(c, 82), ViewGroup.LayoutParams.WRAP_CONTENT));
+            android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(c);
+            hs.setHorizontalScrollBarEnabled(false);
+            LinearLayout chips = U.row(c);
+            for (Store.Spec sp : e.getValue()) {
+                View b = SpecScreen.kindButton(c, sp, sp.name.equals(cur));
+                if (sp.name.equals(recent) && !sp.name.equals(cur))
+                    b.setForeground(U.box(c, Color.TRANSPARENT, 8, U.OK, 2.5f));
+                b.setOnClickListener(v -> {
+                    String[] sk = Kind.split(sp.name);
+                    r.spec = sk[0];
+                    r.state = sk[1];
+                    a.closeSheet();
+                    rebuild.run();
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, U.dp(c, 46));
+                lp.rightMargin = U.dp(c, 6);
+                chips.addView(b, lp);
+            }
+            hs.addView(chips);
+            row.addView(hs, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            body.addView(row, U.match());
+            View ln = new View(c);
+            ln.setBackgroundColor(Color.rgb(0xd3, 0xda, 0xd1));
+            body.addView(ln, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        }
+        s.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView g = U.tv(c, "목록에 없으면 가이드 → 스펙 편집에서 등록", 12.5f, U.SUB, null);
+        g.setGravity(Gravity.CENTER);
+        g.setPadding(0, U.dp(c, 10), 0, 0);
+        s.addView(g, U.match());
+        a.showSheet(s, null);
     }
 
     private static EditText cellEdit(Context c, String v, int type, float sp, boolean bold) {
@@ -489,13 +613,12 @@ final class HandoverPages {
         return e;
     }
 
-    /** 입력칸 → 데이터 */
+    /** 입력칸 → 데이터 (호기 · 특이사항) */
     private static void pull(Store.Handover h, List<EditText[]> fields) {
         for (int i = 0; i < fields.size() && i < h.rows.size(); i++) {
             Store.HandRow r = h.rows.get(i);
             r.unit = fields.get(i)[0].getText().toString().trim();
-            r.spec = fields.get(i)[1].getText().toString().trim();
-            r.count = fields.get(i)[2].getText().toString().trim();
+            r.note = fields.get(i)[1].getText().toString().trim();
         }
     }
 
@@ -526,11 +649,20 @@ final class HandoverPages {
             LinearLayout row = U.row(c);
             row.setPadding(0, U.dp(c, 8), 0, U.dp(c, 8));
             row.addView(U.tv(c, r.unit, 18, U.INK, U.BOLD), new LinearLayout.LayoutParams(U.dp(c, 56), ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.addView(U.tv(c, r.spec, 15, U.INK, U.MONO_B), U.lpW(1));
-            TextView cnt = U.tv(c, r.count, 15, r.count.contains("진행") ? U.SIGNAL : U.INK, U.MONO_B);
+            LinearLayout spc = U.row(c);
+            spc.setGravity(Gravity.CENTER_VERTICAL);
+            spc.addView(U.tv(c, r.spec, 15, U.INK, U.MONO_B));
+            if (!r.state.isEmpty()) spc.addView(Kind.tag(c, r.state, 12), U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), c, 6, 0, 0, 0));
+            row.addView(spc, U.lpW(1));
+            TextView cnt = U.tv(c, r.rounds() + "회" + (r.live ? " · 진행 중" : ""), 15, r.live ? U.SIGNAL : U.INK, U.MONO_B);
             cnt.setGravity(Gravity.END);
             row.addView(cnt, U.lpW(1));
             p.addView(row, U.match());
+            if (!r.note.isEmpty()) {
+                TextView nt = U.tv(c, "  └ " + r.note, 12.5f, U.SUB, null);
+                nt.setPadding(U.dp(c, 56), 0, 0, U.dp(c, 8));
+                p.addView(nt, U.match());
+            }
         }
         if (h.rows.isEmpty()) p.addView(U.tv(c, "가공한 호기 없음", 13, U.SUB, null), U.margins(U.match(), c, 0, 8, 0, 8));
         if (!h.memo.isEmpty()) {
@@ -569,7 +701,10 @@ final class HandoverPages {
 
     private static void shareText(MainActivity a, Store.Handover h) {
         StringBuilder sb = new StringBuilder("[H.G 진동연마] " + label(h.date) + " " + h.shift + " 인수인계\n");
-        for (Store.HandRow r : h.rows) sb.append(r.unit).append("호기  ").append(r.spec).append("  ").append(r.count).append('\n');
+        for (Store.HandRow r : h.rows) {
+            sb.append(r.unit).append("호기  ").append(r.specLabel()).append("  ").append(r.rounds()).append("회").append(r.live ? " (진행 중)" : "").append('\n');
+            if (!r.note.isEmpty()) sb.append("   - ").append(r.note).append('\n');
+        }
         if (!h.memo.isEmpty()) sb.append('\n').append(h.memo);
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("text/plain");

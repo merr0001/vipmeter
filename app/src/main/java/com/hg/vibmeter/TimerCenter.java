@@ -173,12 +173,13 @@ public final class TimerCenter {
             int idx = m.doneRounds;
             m.log.add(idx + "회 " + hm(start) + "–" + hm(end));
             Store.addRound(c, unit, m.spec, start, end);
-            if (m.planDone()) msg = unit + "호기 " + idx + "회 작업 완료 — 가공 결과를 입력하세요";
-            else msg = unit + "호기 " + idx + "회 끝 — 다음 회차 시작";
+            if (m.planDone()) msg = unit + "호기 작업 완료 (" + idx + "회) — 가공 결과를 입력하세요";
+            else msg = unit + "호기 대기 — " + idx + "회 가공 끝";
         } else {
             msg = unit + "호기 " + m.durMin + "분 타이머 완료";
         }
         m.endAt = 0;
+        m.lastEnd = end;
         clearPause(m);
         m.finished = true;
         m.finishMsg = msg;

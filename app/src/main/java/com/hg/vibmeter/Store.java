@@ -72,6 +72,7 @@ public final class Store {
         public int planA = 5, roundMin = 20;   // 가공 횟수, 1회 시간
         public int doneRounds;
         public long planStart;
+        public long lastEnd;        // 마지막 회차가 끝난 시각 (대기 시작)
         public List<String> log = new ArrayList<>();
 
         // 일시정지
@@ -106,6 +107,7 @@ public final class Store {
             m.roundMin = o.optInt("roundMin", 20);
             m.doneRounds = o.optInt("doneRounds", 0);
             m.planStart = o.optLong("planStart", 0);
+            m.lastEnd = o.optLong("lastEnd", 0);
             m.pausedLeft = o.optLong("pausedLeft", 0);
             m.pauseAt = o.optLong("pauseAt", 0);
             m.pausedMs = o.optLong("pausedMs", 0);
@@ -130,6 +132,7 @@ public final class Store {
             o.put("roundMin", m.roundMin);
             o.put("doneRounds", m.doneRounds);
             o.put("planStart", m.planStart);
+            o.put("lastEnd", m.lastEnd);
             o.put("pausedLeft", m.pausedLeft);
             o.put("pauseAt", m.pauseAt);
             o.put("pausedMs", m.pausedMs);
@@ -167,7 +170,7 @@ public final class Store {
             JSONArray a = new JSONArray(s);
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.getJSONObject(i);
-                Spec sp = new Spec(o.getString("name"), o.getDouble("target"));
+                Spec sp = new Spec(o.getString("name"), o.optDouble("target", Double.NaN));
                 sp.tol = o.optDouble("tol", 3);
                 l.add(sp);
             }
@@ -180,7 +183,7 @@ public final class Store {
             JSONArray a = new JSONArray();
             for (Spec s : l) {
                 JSONObject o = new JSONObject();
-                o.put("name", s.name); o.put("target", s.target); o.put("tol", s.tol);
+                o.put("name", s.name); if (!Double.isNaN(s.target)) o.put("target", s.target); o.put("tol", s.tol);
                 a.put(o);
             }
             sp(c).edit().putString("specs", a.toString()).commit();
@@ -338,7 +341,16 @@ public final class Store {
     }
 
     // ---------------- 인수인계 ----------------
-    public static final class HandRow { public String unit = "", spec = "", count = ""; }
+    public static final class HandRow {
+        public String unit = "", spec = "", count = "", state = "", note = "";
+        public boolean live;
+        /** 가공 횟수 숫자 */
+        public int rounds() {
+            String s = count.replaceAll("[^0-9].*$", "");
+            try { return Integer.parseInt(s); } catch (Exception e) { return 0; }
+        }
+        public String specLabel() { return state.isEmpty() ? spec : spec + " " + state; }
+    }
 
     public static final class Handover {
         public long id;            // 처음 저장한 시각 (고유 번호)
@@ -365,6 +377,10 @@ public final class Store {
                 if (ro == null) continue;
                 HandRow r = new HandRow();
                 r.unit = ro.optString("unit"); r.spec = ro.optString("spec"); r.count = ro.optString("count");
+                r.state = ro.optString("state", ""); r.note = ro.optString("note", ""); r.live = ro.optBoolean("live", false);
+                if (r.state.isEmpty() && r.spec.trim().contains(" ")) { String[] sk = Kind.split(r.spec); r.spec = sk[0]; r.state = sk[1]; }
+                if (r.count.contains("진행")) r.live = true;
+                if (!r.count.isEmpty()) r.count = String.valueOf(r.rounds());
                 h.rows.add(r);
             }
             l.add(h);
@@ -383,6 +399,7 @@ public final class Store {
                 for (HandRow r : h.rows) {
                     JSONObject ro = new JSONObject();
                     ro.put("unit", r.unit); ro.put("spec", r.spec); ro.put("count", r.count);
+                    ro.put("state", r.state); ro.put("note", r.note); ro.put("live", r.live);
                     rs.put(ro);
                 }
                 o.put("rows", rs);

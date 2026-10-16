@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -23,134 +24,204 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** 타이머 탭: 1~17호기 한 화면, 탭=개별, 길게 누르기=다중 선택 */
+/** 상황판: 가공 중인 설비를 한눈에 (가공 · 대기 · 멈춤 · 완료), 탭=상세, 꾹=다음 회차 바로 시작 */
 class TimerScreen extends MainActivity.Screen {
 
     static final int[] PRESETS = {1, 3, 5, 10, 20, 30, 60};
+    static final int IDLE = 0, RUN = 1, WAIT = 2, PAUSE = 3, DONE = 4;
 
     boolean multi;
     private final Set<Integer> sel = new LinkedHashSet<>();
-    private final Tile[] tiles = new Tile[Store.UNITS + 1];
-    private TextView sumRun, sumDone, sumIdle, allTile, hint;
-    private LinearLayout sumRow, selBar;
-    private TextView selText;
+    private final Card[] cards = new Card[Store.UNITS + 1];
+    private final TextView[] idleChips = new TextView[Store.UNITS + 1];
+    private TextView clock, sRun, sWait, sPause, sDone, selBtn, hint, idleTitle;
+    private GridLayout board, idleGrid;
+    private LinearLayout queue, queueRow, idleBox;
+    private String order = "", idleOrder = "";
+    private TextView undo;
+    private final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
 
     TimerScreen(MainActivity a) { super(a); }
 
-    // ---------------- 타일 ----------------
-    class Tile extends FrameLayout {
+    static int state(Store.Machine m, long now) {
+        if (m.paused()) return PAUSE;
+        if (m.endAt > now) return RUN;
+        if (m.planActive && !m.planDone()) return WAIT;
+        if (m.planActive && m.planDone()) return DONE;
+        if (m.finished) return DONE;
+        return IDLE;
+    }
+
+    // ---------------- 카드 ----------------
+    class Card extends LinearLayout {
         final int unit;
-        final TextView num, st, time, spec;
-        final Prog prog;
+        final TextView num, spec, kind, badge, lab, time, rms, cnt;
+        final Bar bar;
         final View check;
-        Tile(Context c, int unit) {
+        Card(Context c, int unit) {
             super(c);
             this.unit = unit;
-            setPadding(U.dp(c, 9), U.dp(c, 7), U.dp(c, 9), U.dp(c, 7));
-            LinearLayout top = U.row(c);
-            num = U.tv(c, unit + "", 20, U.INK, U.BOLD);
-            top.addView(num);
-            TextView ho = U.tv(c, "호기", 10, U.SUB, null);
-            ho.setPadding(U.dp(c, 1), U.dp(c, 6), 0, 0);
-            top.addView(ho);
-            addView(top, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START));
-            st = U.tv(c, "", 10.5f, U.SUB, U.MONO_B);
-            addView(st, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END));
-            spec = U.tv(c, "", 9.5f, U.SUB, U.MONO);
-            LayoutParams spl = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
-            spl.topMargin = U.dp(c, 24);
-            addView(spec, spl);
-            LinearLayout bot = U.col(c);
-            time = U.tv(c, "", 25, U.INK, U.MONO_B);
-            bot.addView(time);
-            prog = new Prog(c);
-            bot.addView(prog, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(c, 4)), c, 0, 5, 0, 0));
-            addView(bot, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+            setOrientation(VERTICAL);
+            setPadding(U.dp(c, 10), U.dp(c, 8), U.dp(c, 10), U.dp(c, 9));
+            LinearLayout t1 = U.row(c);
+            t1.setGravity(Gravity.CENTER_VERTICAL);
+            num = U.tv(c, unit + "", 20, Color.WHITE, U.BOLD);
+            t1.addView(num);
+            TextView ho = U.tv(c, "호기", 10, U.PHOS_DIM, null);
+            ho.setPadding(U.dp(c, 1), U.dp(c, 5), 0, 0);
+            t1.addView(ho);
+            t1.addView(new View(c), U.lpW(1));
+            LinearLayout sp = U.row(c);
+            sp.setGravity(Gravity.CENTER_VERTICAL);
+            sp.setBackground(U.box(c, U.PLATE, 4, U.PLATE, 0));
+            sp.setPadding(U.dp(c, 5), U.dp(c, 1), U.dp(c, 2), U.dp(c, 1));
+            spec = U.tv(c, "", 11.5f, U.INK, U.MONO_B);
+            sp.addView(spec);
+            kind = U.tv(c, "", 10.5f, Color.WHITE, U.MONO_B);
+            kind.setPadding(U.dp(c, 4), 0, U.dp(c, 4), 0);
+            sp.addView(kind, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), c, 4, 0, 0, 0));
+            t1.addView(sp);
             check = new View(c);
-            LayoutParams cl = new LayoutParams(U.dp(c, 22), U.dp(c, 22), Gravity.TOP | Gravity.END);
-            addView(check, cl);
+            t1.addView(check, U.margins(new LinearLayout.LayoutParams(U.dp(c, 20), U.dp(c, 20)), c, 5, 0, 0, 0));
+            addView(t1, U.match());
+            LinearLayout t2 = U.row(c);
+            t2.setGravity(Gravity.CENTER_VERTICAL);
+            t2.setPadding(0, U.dp(c, 6), 0, 0);
+            badge = U.tv(c, "", 10.5f, U.SCREEN, U.BOLD);
+            badge.setPadding(U.dp(c, 6), U.dp(c, 1), U.dp(c, 6), U.dp(c, 1));
+            t2.addView(badge);
+            lab = U.tv(c, "", 10.5f, U.PHOS_DIM, U.BOLD);
+            lab.setPadding(U.dp(c, 5), 0, 0, 0);
+            lab.setSingleLine(true);
+            t2.addView(lab, U.lpW(1));
+            addView(t2, U.match());
+            LinearLayout t3 = U.row(c);
+            t3.setGravity(Gravity.BOTTOM);
+            time = U.tv(c, "", 29, U.PHOS, U.MONO_B);
+            time.setSingleLine(true);
+            t3.addView(time, U.lpW(1));
+            rms = U.tv(c, "", 10.5f, U.PHOS_DIM, U.MONO);
+            rms.setPadding(0, 0, 0, U.dp(c, 5));
+            t3.addView(rms);
+            addView(t3, U.match());
+            LinearLayout t4 = U.row(c);
+            t4.setGravity(Gravity.CENTER_VERTICAL);
+            bar = new Bar(c);
+            t4.addView(bar, new LinearLayout.LayoutParams(0, U.dp(c, 7), 1));
+            cnt = U.tv(c, "", 10.5f, U.PHOS_DIM, U.MONO_B);
+            cnt.setPadding(U.dp(c, 6), 0, 0, 0);
+            t4.addView(cnt);
+            addView(t4, U.margins(U.match(), c, 0, 4, 0, 0));
             setOnClickListener(v -> onTap(unit));
             setOnLongClickListener(v -> { onLong(unit); return true; });
         }
 
-        void render(Store.Machine m, long now) {
+        void render(Store.Machine m, long now, int st) {
             Context c = getContext();
-            boolean run = m.endAt > now;
-            boolean selected = multi && sel.contains(unit);
-            int bg, fg, sub;
-            if (m.finished) {
-                setBackground(U.box(c, U.SIGNAL, 7, Color.argb(90, 226, 87, 27), 3));
-                fg = Color.WHITE; sub = Color.rgb(0xff, 0xe3, 0xd4);
-                st.setText(m.round ? "회차 끝" : "완료");
-                time.setText("00:00");
-                time.setTextSize(25);
-                prog.frac = 1; prog.color = Color.WHITE; prog.track = Color.argb(80, 255, 255, 255);
-            } else if (run) {
-                setBackground(U.box(c, U.SCREEN, 7, U.SCREEN, 0));
-                fg = U.PLATE; sub = U.PHOS_DIM;
-                st.setText(m.round ? roundLabel(m) : m.durMin + "분");
+            String[] sk = Kind.split(m.spec);
+            spec.setText(sk[0].isEmpty() ? "스펙 없음" : sk[0]);
+            if (sk[1].isEmpty()) kind.setVisibility(GONE);
+            else {
+                kind.setVisibility(VISIBLE);
+                kind.setText(sk[1]);
+                kind.setBackground(U.box(c, Kind.colors(sk[1])[0], 3, Kind.colors(sk[1])[0], 0));
+            }
+            int tot = Math.max(1, Math.min(10, m.planActive ? m.planTotal() : 1));
+            bar.total = tot;
+            bar.done = m.planActive ? Math.min(m.doneRounds, tot) : 0;
+            bar.current = st == RUN || st == PAUSE;
+            int shown = m.planActive ? Math.min(tot, m.doneRounds + (st == RUN || st == PAUSE ? 1 : 0)) : 0;
+            cnt.setText(m.planActive ? Math.max(shown, m.doneRounds) + "/" + m.planTotal() + "회" : "");
+            Store.Record rec = Store.lastRecord(recs, m.unit, m.spec.isEmpty() ? null : m.spec);
+            if (rec != null) {
+                int j = U.judge(Store.spec(a, m.spec), rec.vRms);
+                rms.setText(U.f1(rec.vRms) + (j == 0 ? " ✓" : j > 0 ? " !" : ""));
+            } else rms.setText("");
+            int fg = Color.WHITE, sub = U.PHOS_DIM;
+            if (st == WAIT) {
+                setBackground(U.box(c, U.SIGNAL, 9, U.SIGNAL_DK, 1));
+                badge.setText("대기");
+                badge.setBackground(U.box(c, Color.WHITE, 3, Color.WHITE, 0));
+                badge.setTextColor(U.SIGNAL);
+                long since = m.lastEnd > 0 ? now - m.lastEnd : 0;
+                lab.setText(m.doneRounds + "회 끝 · 꾹 = 다음 회차");
+                time.setText(m.lastEnd > 0 ? U.mmss(since) + " 지남" : "다음 회차");
+                time.setTextSize(22);
+                time.setTextColor(Color.WHITE);
+                sub = Color.rgb(0xff, 0xe3, 0xd4);
+                bar.on = Color.WHITE; bar.cur = Color.WHITE; bar.off = Color.argb(80, 255, 255, 255);
+            } else if (st == RUN) {
+                setBackground(U.box(c, U.SCREEN, 9, U.SCREEN, 0));
+                badge.setText("가공");
+                badge.setBackground(U.box(c, U.PHOS, 3, U.PHOS, 0));
+                badge.setTextColor(U.SCREEN);
+                boolean last = m.planActive && m.doneRounds + 1 >= m.planTotal();
+                lab.setText(last ? "남은 시간 · 마지막" : "남은 시간");
                 time.setText(U.mmss(m.endAt - now));
-                time.setTextSize(25);
+                time.setTextSize(29);
                 time.setTextColor(U.PHOS);
-                double tot = m.durMin * 60_000.0;
-                prog.frac = (float) Math.max(0, Math.min(1, 1 - (m.endAt - now) / tot));
-                prog.color = U.PHOS; prog.track = Color.argb(46, 159, 224, 184);
-            } else if (m.paused()) {
-                setBackground(U.box(c, U.SCREEN, 7, U.WARN, 3));
-                fg = U.PLATE; sub = Color.rgb(0xe8, 0xc0, 0x6a);
-                st.setText("일시정지");
+                bar.on = U.PHOS_DIM; bar.cur = U.PHOS; bar.off = Color.rgb(0x3a, 0x47, 0x41);
+            } else if (st == PAUSE) {
+                setBackground(U.box(c, U.SCREEN, 9, Color.rgb(0xe8, 0xc0, 0x6a), 3));
+                badge.setText("멈춤");
+                badge.setBackground(U.box(c, Color.rgb(0xe8, 0xc0, 0x6a), 3, Color.rgb(0xe8, 0xc0, 0x6a), 0));
+                badge.setTextColor(U.SCREEN);
+                lab.setText("남은 시간");
                 time.setText(U.mmss(m.pausedLeft));
-                time.setTextSize(25);
-                time.setTextColor((now / 600) % 2 == 0 ? Color.rgb(0xe8, 0xc0, 0x6a) : Color.argb(110, 232, 192, 106));
-                double tot = m.durMin * 60_000.0;
-                prog.frac = (float) Math.max(0, Math.min(1, 1 - m.pausedLeft / tot));
-                prog.color = Color.rgb(0xe8, 0xc0, 0x6a); prog.track = Color.argb(46, 232, 192, 106);
+                time.setTextSize(29);
+                time.setTextColor(Color.rgb(0xe8, 0xc0, 0x6a));
+                bar.on = U.PHOS_DIM; bar.cur = Color.rgb(0xe8, 0xc0, 0x6a); bar.off = Color.rgb(0x3a, 0x47, 0x41);
             } else {
-                setBackground(U.dashed(c, U.PLATE, 7, U.DASH));
-                fg = U.INK; sub = Color.rgb(0x8b, 0x96, 0x8c);
-                if (m.planActive && !m.planDone()) st.setText((m.doneRounds) + "/" + m.planTotal() + "회");
-                else st.setText("대기");
-                time.setText("— : —");
-                time.setTextSize(15);
-                prog.frac = 0; prog.color = U.RULE; prog.track = Color.TRANSPARENT;
+                setBackground(U.box(c, U.PLATE, 9, U.OK, 2));
+                fg = U.INK; sub = U.SUB;
+                badge.setText("완료");
+                badge.setBackground(U.box(c, U.OK, 3, U.OK, 0));
+                badge.setTextColor(Color.WHITE);
+                lab.setText(m.planActive ? (m.doneRounds * m.roundMin) + "분 · 눌러서 결과 입력" : m.durMin + "분 타이머 완료");
+                time.setText("작업 완료");
+                time.setTextSize(21);
+                time.setTextColor(U.OK);
+                bar.on = U.OK; bar.cur = U.OK; bar.off = U.RULE;
             }
             num.setTextColor(fg);
             ((TextView) ((LinearLayout) num.getParent()).getChildAt(1)).setTextColor(sub);
-            st.setTextColor(sub);
-            spec.setText(m.spec);
-            spec.setTextColor(sub);
-            if (!run) time.setTextColor(m.finished ? Color.WHITE : Color.rgb(0x9a, 0xa5, 0x9b));
-            prog.invalidate();
-            if (multi) {
-                st.setVisibility(INVISIBLE);
-                check.setVisibility(VISIBLE);
-                check.setBackground(selected ? U.box(c, U.OK, 11, Color.WHITE, 2) : U.box(c, Color.TRANSPARENT, 11, run ? Color.rgb(0x5b, 0x6e, 0x64) : U.DASH, 2));
-                if (selected) setForeground(U.box(c, Color.TRANSPARENT, 7, U.OK, 3));
-                else setForeground(null);
-            } else {
-                st.setVisibility(VISIBLE);
-                check.setVisibility(GONE);
-                setForeground(null);
+            lab.setTextColor(sub);
+            rms.setTextColor(sub);
+            cnt.setTextColor(sub);
+            bar.invalidate();
+            boolean s = multi && sel.contains(unit);
+            check.setVisibility(multi ? VISIBLE : GONE);
+            check.setBackground(s ? U.box(c, U.OK, 10, Color.WHITE, 2) : U.box(c, Color.TRANSPARENT, 10, sub, 2));
+            setForeground(s ? U.box(c, Color.TRANSPARENT, 9, U.OK, 4) : null);
+        }
+    }
+
+    /** 회차 막대 (최대 10칸) */
+    static class Bar extends View {
+        int total = 5, done; boolean current;
+        int on = U.PHOS_DIM, cur = U.PHOS, off = Color.rgb(0x3a, 0x47, 0x41);
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Bar(Context c) { super(c); }
+        @Override protected void onDraw(Canvas cv) {
+            float W = getWidth(), H = getHeight(), d = getResources().getDisplayMetrics().density;
+            float g = 2.5f * d, w = (W - g * 9) / 10f;
+            for (int i = 0; i < 10; i++) {
+                float x = i * (w + g);
+                RectF r = new RectF(x, 0, x + w, H);
+                if (i >= total) {
+                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(d); p.setColor(off);
+                    r.inset(d / 2, H * 0.25f);
+                    cv.drawRoundRect(r, d, d, p);
+                    continue;
+                }
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(i < done ? on : (i == done && current ? cur : off));
+                cv.drawRoundRect(r, 1.5f * d, 1.5f * d, p);
             }
         }
     }
 
-    static String roundLabel(Store.Machine m) {
-        return (m.doneRounds + 1) + "회";
-    }
-
-    static class Prog extends View {
-        float frac; int color = U.PHOS, track = Color.TRANSPARENT;
-        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        Prog(Context c) { super(c); }
-        @Override protected void onDraw(Canvas cv) {
-            float w = getWidth(), h = getHeight();
-            p.setColor(track);
-            cv.drawRoundRect(new RectF(0, 0, w, h), h / 2, h / 2, p);
-            p.setColor(color);
-            cv.drawRoundRect(new RectF(0, 0, w * frac, h), h / 2, h / 2, p);
-        }
-    }
+    private List<Store.Record> recs = new ArrayList<>();
 
     @Override
     View build() {
@@ -158,53 +229,62 @@ class TimerScreen extends MainActivity.Screen {
         ScrollView sv = new ScrollView(c);
         LinearLayout col = U.col(c);
         sv.addView(col);
-        col.addView(a.header("타이머", "1~" + Store.UNITS + "호기"));
+        LinearLayout hd = U.row(c);
+        hd.setGravity(Gravity.BOTTOM);
+        hd.setPadding(U.dp(c, 18), U.dp(c, 14), U.dp(c, 18), U.dp(c, 8));
+        hd.addView(U.tv(c, "상황판", 26, U.INK, U.BOLD), U.lpW(1));
+        clock = U.tv(c, "", 13, U.SUB, U.MONO_B);
+        hd.addView(clock);
+        col.addView(hd, U.match());
 
-        sumRow = U.row(c);
-        sumRow.setPadding(U.dp(c, 14), 0, U.dp(c, 14), U.dp(c, 10));
-        sumRun = chip(sumRow, U.SCREEN, U.PHOS);
-        sumDone = chip(sumRow, U.SIGNAL, Color.WHITE);
-        sumIdle = chip(sumRow, U.PLATE, U.INK);
-        col.addView(sumRow);
+        LinearLayout sum = U.row(c);
+        sum.setGravity(Gravity.CENTER_VERTICAL);
+        sum.setPadding(U.dp(c, 14), 0, U.dp(c, 14), U.dp(c, 8));
+        sRun = chip(sum, U.SCREEN, U.PHOS);
+        sWait = chip(sum, U.SIGNAL, Color.WHITE);
+        sPause = chip(sum, Color.rgb(0xe8, 0xc0, 0x6a), U.SCREEN);
+        sDone = chip(sum, U.OK, Color.WHITE);
+        sum.addView(new View(c), U.lpW(1));
+        selBtn = U.tv(c, "☐ 선택", 13, U.INK, U.BOLD);
+        selBtn.setBackground(U.box(c, U.PLATE, 6, U.INK, 1.5f));
+        selBtn.setPadding(U.dp(c, 10), U.dp(c, 5), U.dp(c, 10), U.dp(c, 5));
+        selBtn.setOnClickListener(v -> { if (multi) exitMulti(); else { multi = true; sel.clear(); a.closeSheet(); tick(); } });
+        sum.addView(selBtn);
+        col.addView(sum, U.match());
 
-        selBar = U.row(c);
-        selBar.setBackground(U.box(c, U.INK, 7, U.INK, 0));
-        selBar.setPadding(U.dp(c, 14), U.dp(c, 12), U.dp(c, 14), U.dp(c, 12));
-        selText = U.tv(c, "", 18, U.PLATE, U.BOLD);
-        selBar.addView(selText, U.lpW(1));
-        TextView cancel = U.tv(c, "취소", 14, U.PLATE, null);
-        cancel.setOnClickListener(v -> exitMulti());
-        selBar.addView(cancel);
-        selBar.setVisibility(View.GONE);
-        col.addView(selBar, U.margins(U.match(), c, 14, 0, 14, 10));
+        queue = U.window(c);
+        queue.setPadding(U.dp(c, 12), U.dp(c, 9), U.dp(c, 12), U.dp(c, 10));
+        queue.addView(U.tv(c, "곧 대기 (가공 끝나는 순)", 11, U.PHOS_DIM, U.BOLD));
+        queueRow = U.row(c);
+        queue.addView(queueRow, U.margins(U.match(), c, 0, 6, 0, 0));
+        col.addView(queue, U.margins(U.match(), c, 14, 0, 14, 8));
 
-        GridLayout g = new GridLayout(c);
-        g.setColumnCount(3);
-        g.setPadding(U.dp(c, 11), 0, U.dp(c, 11), 0);
+        board = new GridLayout(c);
+        board.setColumnCount(2);
+        board.setPadding(U.dp(c, 11), 0, U.dp(c, 11), 0);
+        for (int u = 1; u <= Store.UNITS; u++) cards[u] = new Card(c, u);
+        col.addView(board, U.match());
+
+        idleBox = U.col(c);
+        idleBox.setBackground(U.dashed(c, U.PLATE, 9, U.DASH));
+        idleBox.setPadding(U.dp(c, 10), U.dp(c, 8), U.dp(c, 10), U.dp(c, 10));
+        idleTitle = U.tv(c, "쉬는 설비 · 눌러서 작업 시작", 11.5f, U.SUB, U.BOLD);
+        idleBox.addView(idleTitle);
+        idleGrid = new GridLayout(c);
+        idleGrid.setColumnCount(6);
         for (int u = 1; u <= Store.UNITS; u++) {
-            Tile t = new Tile(c, u);
-            tiles[u] = t;
-            g.addView(t, cell());
+            final int uu = u;
+            TextView t = U.tv(c, String.valueOf(u), 15, U.INK, U.MONO_B);
+            t.setGravity(Gravity.CENTER);
+            t.setOnClickListener(v -> onTap(uu));
+            t.setOnLongClickListener(v -> { onLong(uu); return true; });
+            idleChips[u] = t;
         }
-        allTile = U.tv(c, "진행 중\n모두 정지", 13, U.INK, U.BOLD);
-        allTile.setGravity(Gravity.CENTER);
-        allTile.setBackground(U.box(c, Color.TRANSPARENT, 7, U.INK, 2));
-        allTile.setOnClickListener(v -> {
-            if (multi) { selectAll(); return; }
-            Toast.makeText(a, "모두 정지하려면 길게 누르세요", Toast.LENGTH_SHORT).show();
-        });
-        allTile.setOnLongClickListener(v -> {
-            if (multi) return false;
-            for (Store.Machine m : Store.machines(a)) if (m.endAt > 0 || m.paused()) TimerCenter.stop(a, m.unit);
-            Toast.makeText(a, "진행 중인 타이머를 모두 정지했습니다", Toast.LENGTH_SHORT).show();
-            tick();
-            return true;
-        });
-        g.addView(allTile, cell());
-        col.addView(g, U.match());
+        idleBox.addView(idleGrid, U.margins(U.match(), c, 0, 6, 0, 0));
+        col.addView(idleBox, U.margins(U.match(), c, 14, 6, 14, 0));
 
-        hint = U.tv(c, "탭: 개별 타이머 · 길게 누르기: 여러 호기 선택 → 아래 버튼", 12, U.SUB, null);
-        hint.setPadding(U.dp(c, 16), U.dp(c, 10), U.dp(c, 16), U.dp(c, 20));
+        hint = U.tv(c, "카드 누르기: 상세 · 대기 카드 꾹: 다음 회차 바로 시작 · ☐ 선택: 여러 대", 11.5f, U.SUB, null);
+        hint.setPadding(U.dp(c, 16), U.dp(c, 10), U.dp(c, 16), U.dp(c, 16));
         col.addView(hint);
         multiPad = new View(c);
         col.addView(multiPad, new LinearLayout.LayoutParams(1, U.dp(c, 120)));
@@ -215,9 +295,18 @@ class TimerScreen extends MainActivity.Screen {
         multiBar.setBackground(U.box(c, U.INK, 12, U.INK, 0));
         multiBar.setElevation(U.dp(c, 8));
         multiBar.setPadding(U.dp(c, 10), U.dp(c, 10), U.dp(c, 10), U.dp(c, 10));
+        LinearLayout ir = U.row(c);
         multiInfo = U.tv(c, "", 13, U.PHOS, U.MONO_B);
-        multiInfo.setPadding(U.dp(c, 4), 0, 0, U.dp(c, 8));
-        multiBar.addView(multiInfo);
+        ir.addView(multiInfo, U.lpW(1));
+        TextView all = U.tv(c, "전체", 13, U.PLATE, U.BOLD);
+        all.setPadding(U.dp(c, 10), 0, U.dp(c, 10), 0);
+        all.setOnClickListener(v -> selectAll());
+        ir.addView(all);
+        TextView cancel = U.tv(c, "취소", 13, U.PLATE, U.BOLD);
+        cancel.setPadding(U.dp(c, 10), 0, U.dp(c, 4), 0);
+        cancel.setOnClickListener(v -> exitMulti());
+        ir.addView(cancel);
+        multiBar.addView(ir, U.margins(U.match(), a, 4, 0, 0, 8));
         LinearLayout br = U.row(c);
         br.addView(barBtn("멈춤/계속", U.ENAMEL, U.INK, v -> multiPause()), new LinearLayout.LayoutParams(0, U.dp(c, 50), 1));
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, U.dp(c, 50), 0.8f);
@@ -231,15 +320,16 @@ class TimerScreen extends MainActivity.Screen {
         ml.setMargins(U.dp(c, 10), 0, U.dp(c, 10), U.dp(c, 10));
         root.addView(multiBar, ml);
         multiBar.setVisibility(View.GONE);
-        return root;
-    }
 
-    private GridLayout.LayoutParams cell() {
-        GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
-        p.width = 0;
-        p.height = U.dp(a, 88);
-        p.setMargins(U.dp(a, 3), U.dp(a, 3), U.dp(a, 3), U.dp(a, 3));
-        return p;
+        undo = U.tv(c, "", 14, Color.WHITE, U.BOLD);
+        undo.setBackground(U.box(c, U.OK, 9, U.OK, 0));
+        undo.setPadding(U.dp(c, 14), U.dp(c, 12), U.dp(c, 14), U.dp(c, 12));
+        undo.setElevation(U.dp(c, 8));
+        undo.setVisibility(View.GONE);
+        FrameLayout.LayoutParams ul = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP);
+        ul.setMargins(U.dp(c, 12), U.dp(c, 8), U.dp(c, 12), 0);
+        root.addView(undo, ul);
+        return root;
     }
 
     private LinearLayout multiBar;
@@ -255,36 +345,114 @@ class TimerScreen extends MainActivity.Screen {
     }
 
     private TextView chip(LinearLayout row, int bg, int fg) {
-        TextView t = U.tv(a, "", 13, fg, U.BOLD);
-        t.setBackground(U.box(a, bg, 4, bg == U.PLATE ? U.RULE : bg, 1));
-        t.setPadding(U.dp(a, 10), U.dp(a, 5), U.dp(a, 10), U.dp(a, 5));
-        row.addView(t, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 0, 0, 6, 0));
+        TextView t = U.tv(a, "", 12.5f, fg, U.BOLD);
+        t.setBackground(U.box(a, bg, 5, bg, 0));
+        t.setPadding(U.dp(a, 9), U.dp(a, 5), U.dp(a, 9), U.dp(a, 5));
+        row.addView(t, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), a, 0, 0, 5, 0));
         return t;
     }
 
     @Override void onShow() { tick(); }
 
+    private int rank(int st) { return st == WAIT ? 0 : st == RUN ? 1 : st == PAUSE ? 2 : 3; }
+
+    private long key(Store.Machine m, int st, long now) {
+        if (st == WAIT) return m.lastEnd > 0 ? m.lastEnd : 0;
+        if (st == RUN) return m.endAt - now;
+        if (st == PAUSE) return m.pausedLeft;
+        return m.unit;
+    }
+
     @Override void tick() {
         if (root == null) return;
         long now = System.currentTimeMillis();
-        int run = 0, done = 0, paused = 0;
-        for (Store.Machine m : Store.machines(a)) {
-            tiles[m.unit].render(m, now);
-            if (m.finished) done++;
-            else if (m.endAt > now || m.paused()) run++;
-            if (m.paused()) paused++;
+        recs = Store.records(a);
+        List<Store.Machine> ms = Store.machines(a);
+        int[] stOf = new int[Store.UNITS + 1];
+        List<Store.Machine> act = new ArrayList<>();
+        StringBuilder idleSig = new StringBuilder();
+        int run = 0, wait = 0, pause = 0, done = 0;
+        for (Store.Machine m : ms) {
+            int st = state(m, now);
+            stOf[m.unit] = st;
+            if (st == IDLE) { idleSig.append(m.unit).append(','); continue; }
+            act.add(m);
+            if (st == RUN) run++; else if (st == WAIT) wait++; else if (st == PAUSE) pause++; else done++;
         }
-        sumRun.setText(paused > 0 ? "진행 " + run + " · 멈춤 " + paused : "진행 " + run);
-        sumDone.setText("완료 " + done);
-        sumIdle.setText("대기 " + (Store.UNITS - run - done));
-        sumDone.setVisibility(done > 0 ? View.VISIBLE : View.GONE);
-        sumRow.setVisibility(multi ? View.GONE : View.VISIBLE);
-        selBar.setVisibility(multi ? View.VISIBLE : View.GONE);
-        selText.setText(sel.size() + "대 선택됨");
-        allTile.setText(multi ? "전체\n선택" : "진행 중\n모두 정지");
+        act.sort((x, y) -> {
+            int sx = stOf[x.unit], sy = stOf[y.unit];
+            if (rank(sx) != rank(sy)) return Integer.compare(rank(sx), rank(sy));
+            return Long.compare(key(x, sx, now), key(y, sy, now));
+        });
+        StringBuilder sig = new StringBuilder();
+        for (Store.Machine m : act) sig.append(m.unit).append(',');
+        if (!sig.toString().equals(order)) {
+            order = sig.toString();
+            board.removeAllViews();
+            for (Store.Machine m : act) {
+                GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
+                p.width = 0;
+                p.setMargins(U.dp(a, 3), U.dp(a, 3), U.dp(a, 3), U.dp(a, 3));
+                Card cd = cards[m.unit];
+                if (cd.getParent() != null) ((ViewGroup) cd.getParent()).removeView(cd);
+                board.addView(cd, p);
+            }
+        }
+        for (Store.Machine m : act) cards[m.unit].render(m, now, stOf[m.unit]);
+
+        if (!idleSig.toString().equals(idleOrder)) {
+            idleOrder = idleSig.toString();
+            idleGrid.removeAllViews();
+            for (Store.Machine m : ms) if (stOf[m.unit] == IDLE) {
+                GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
+                p.width = 0; p.height = U.dp(a, 38);
+                p.setMargins(U.dp(a, 3), U.dp(a, 3), U.dp(a, 3), U.dp(a, 3));
+                idleGrid.addView(idleChips[m.unit], p);
+            }
+        }
+        for (int u = 1; u <= Store.UNITS; u++) {
+            boolean s = multi && sel.contains(u);
+            idleChips[u].setBackground(s ? U.box(a, U.OK, 6, U.OK, 0) : U.box(a, Color.rgb(0xf3, 0xf5, 0xf1), 6, Color.rgb(0xa9, 0xb3, 0xa8), 1));
+            idleChips[u].setTextColor(s ? Color.WHITE : U.INK);
+        }
+        idleBox.setVisibility(idleOrder.isEmpty() ? View.GONE : View.VISIBLE);
+        idleTitle.setText(multi ? "쉬는 설비 · 눌러서 고르기" : "쉬는 설비 · 눌러서 작업 시작");
+
+        // 곧 대기
+        queueRow.removeAllViews();
+        int qn = 0;
+        for (Store.Machine m : act) {
+            int st = stOf[m.unit];
+            if (st != WAIT && st != RUN) continue;
+            if (qn++ >= 4) break;
+            LinearLayout q = U.col(a);
+            q.setBackground(U.box(a, st == WAIT ? Color.rgb(0x3a, 0x2a, 0x20) : Color.rgb(0x2b, 0x34, 0x30), 6, Color.TRANSPARENT, 0));
+            q.setPadding(U.dp(a, 8), U.dp(a, 5), U.dp(a, 6), U.dp(a, 6));
+            q.addView(U.tv(a, m.unit + "호기", 14, U.PLATE, U.BOLD));
+            q.addView(U.tv(a, st == WAIT ? "대기" : U.mmss(m.endAt - now), 16, st == WAIT ? Color.rgb(0xff, 0xb4, 0x8f) : U.PHOS, U.MONO_B));
+            final int uu = m.unit;
+            q.setOnClickListener(v -> onTap(uu));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            lp.rightMargin = U.dp(a, 5);
+            queueRow.addView(q, lp);
+        }
+        for (int i = qn; i < 4; i++) queueRow.addView(new View(a), new LinearLayout.LayoutParams(0, 1, 1));
+        queue.setVisibility(qn == 0 ? View.GONE : View.VISIBLE);
+
+        clock.setText(HandoverPages.label(HandoverPages.currentShift()[0]) + " " + HandoverPages.currentShift()[1] + " · " + U.time(now, "HH:mm"));
+        sRun.setText("가공 " + run);
+        sWait.setText("대기 " + wait);
+        sPause.setText("멈춤 " + pause);
+        sDone.setText("완료 " + done);
+        sWait.setVisibility(wait > 0 ? View.VISIBLE : View.GONE);
+        sPause.setVisibility(pause > 0 ? View.VISIBLE : View.GONE);
+        sDone.setVisibility(done > 0 ? View.VISIBLE : View.GONE);
+        selBtn.setText(multi ? "✕ 선택 끝" : "☐ 선택");
         multiBar.setVisibility(multi ? View.VISIBLE : View.GONE);
         multiPad.setVisibility(multi ? View.VISIBLE : View.GONE);
         multiInfo.setText(sel.isEmpty() ? "호기를 눌러 고르세요" : selLabel() + " 선택");
+        if (act.isEmpty() && !multi) hint.setText("가공 중인 설비가 없습니다 · 아래 번호를 눌러 작업 시작");
+        else hint.setText("카드 누르기: 상세 · 대기 카드 꾹: 다음 회차 바로 시작 · ☐ 선택: 여러 대");
         if (sheetRefresh != null && a.sheetOpen()) sheetRefresh.run();
     }
 
@@ -292,7 +460,7 @@ class TimerScreen extends MainActivity.Screen {
     private void onTap(int unit) {
         if (multi) {
             if (sel.contains(unit)) sel.remove(unit); else sel.add(unit);
-            if (sel.isEmpty()) exitMulti(); else tick();
+            tick();
             return;
         }
         TimerCenter.acknowledge(a, unit);
@@ -300,10 +468,40 @@ class TimerScreen extends MainActivity.Screen {
         tick();
     }
 
+    /** 꾹: 대기 카드는 다음 회차 바로 시작 */
     private void onLong(int unit) {
-        if (!multi) { multi = true; sel.clear(); a.closeSheet(); }
-        sel.add(unit);
+        if (multi) { onTap(unit); return; }
+        Store.Machine m = Store.machine(a, unit);
+        int st = state(m, System.currentTimeMillis());
+        if (st == WAIT) {
+            TimerCenter.acknowledge(a, unit);
+            TimerCenter.startRound(a, unit);
+            Store.Machine n = Store.machine(a, unit);
+            root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            showUndo(unit, n.unit + "호기 " + (n.doneRounds + 1) + "회 가공 시작 · " + n.roundMin + "분");
+        } else if (st == RUN || st == PAUSE) {
+            Toast.makeText(a, unit + "호기 가공 중입니다 · 누르면 상세", Toast.LENGTH_SHORT).show();
+        } else if (st == DONE) {
+            Toast.makeText(a, unit + "호기 작업 완료 · 눌러서 결과 입력", Toast.LENGTH_SHORT).show();
+        } else {
+            showUnitSheet(unit);
+        }
         tick();
+    }
+
+    private final Runnable hideUndo = () -> { if (undo != null) undo.setVisibility(View.GONE); };
+
+    private void showUndo(int unit, String msg) {
+        undo.setText(msg + "      되돌리기 ›");
+        undo.setVisibility(View.VISIBLE);
+        undo.setOnClickListener(v -> {
+            TimerCenter.stop(a, unit);
+            undo.setVisibility(View.GONE);
+            Toast.makeText(a, unit + "호기 대기로 되돌렸습니다", Toast.LENGTH_SHORT).show();
+            tick();
+        });
+        h.removeCallbacks(hideUndo);
+        h.postDelayed(hideUndo, 6000);
     }
 
     private void selectAll() {
@@ -431,7 +629,7 @@ class TimerScreen extends MainActivity.Screen {
     void showUnitSheet(int unit) {
         planSig = -1;
         Store.Machine m0 = Store.machine(a, unit);
-        LinearLayout s = a.sheetBox(unit + "호기 타이머", m0.spec.isEmpty() ? null : m0.spec);
+        LinearLayout s = a.sheetBox(unit + "호기" + (m0.spec.isEmpty() ? "" : " · " + m0.spec), tgtLabel(m0.spec));
         TextView state = U.tv(a, "", 14, U.SUB, U.MONO_B);
         s.addView(state, U.margins(U.match(), a, 0, 0, 0, 8));
         LinearLayout dyn = U.col(a);
@@ -504,6 +702,12 @@ class TimerScreen extends MainActivity.Screen {
 
     private int planSig = -1;
 
+    private String tgtLabel(String spec) {
+        Store.Spec sp = Store.spec(a, spec);
+        if (sp == null || Double.isNaN(sp.target)) return null;
+        return "목표 " + Form.num(sp.target, 1) + " ±" + Form.num(sp.tol, 1);
+    }
+
     private void renderPlan(LinearLayout plan, Store.Machine m) {
         int sig = (m.planActive ? 1 : 0) * 100000 + m.doneRounds * 1000 + (m.planA * 7) + (m.endAt > 0 ? 10 : 0) + (m.paused() ? 3 : 0);
         if (sig == planSig && plan.getChildCount() > 0) return;
@@ -515,6 +719,21 @@ class TimerScreen extends MainActivity.Screen {
             return;
         }
         plan.addView(U.sectionTitle(a, "작업 · " + m.planA + "회 × " + m.roundMin + "분"));
+        LinearLayout info = U.row(a);
+        Store.Record lr = Store.lastRecord(Store.records(a), unit, m.spec.isEmpty() ? null : m.spec);
+        String[][] cells = {{"진행", m.doneRounds + " / " + m.planTotal() + "회"}, {"누적 가공", (m.doneRounds * m.roundMin) + "분"},
+                {"최근 RMS", lr == null ? "—" : U.f1(lr.vRms) + (U.judge(Store.spec(a, m.spec), lr.vRms) == 0 ? " ✓" : "")}};
+        for (int i = 0; i < 3; i++) {
+            LinearLayout cl = U.col(a);
+            cl.setBackground(U.box(a, U.PLATE, 7, U.RULE, 1));
+            cl.setPadding(U.dp(a, 8), U.dp(a, 6), U.dp(a, 8), U.dp(a, 6));
+            cl.addView(U.tv(a, cells[i][0], 11, U.SUB, null));
+            cl.addView(U.tv(a, cells[i][1], 16, U.INK, U.MONO_B));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (i > 0) lp.leftMargin = U.dp(a, 6);
+            info.addView(cl, lp);
+        }
+        plan.addView(info, U.margins(U.match(), a, 0, 0, 0, 8));
         plan.addView(roundsRow(m), U.match());
         int total = m.planTotal() * m.roundMin, doneMin = m.doneRounds * m.roundMin;
         plan.addView(U.tv(a, "누적 " + doneMin + " / " + total + "분", 13, U.SUB, U.MONO), U.margins(U.match(), a, 0, 8, 0, 4));
@@ -526,13 +745,19 @@ class TimerScreen extends MainActivity.Screen {
         boolean run = m.endAt > System.currentTimeMillis() || m.paused();
         if (!run) {
             final boolean done = m.planDone();
-            TextView b = U.button(a, done ? "가공 결과 입력" : "다음 회차 시작", 0, x -> {
+            TextView b = U.button(a, done ? "가공 결과 입력" : "다음 회차 시작 → " + (m.doneRounds + 1) + "회 · " + m.roundMin + "분", 0, x -> {
                 TimerCenter.acknowledge(a, unit);
                 if (done) { a.closeSheet(); ResultSheet.show(a, unit); }
                 else { TimerCenter.startRound(a, unit); a.closeSheet(); }
                 tick();
             });
-            plan.addView(b, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 50)), a, 0, 4, 0, 0));
+            b.setTextSize(18);
+            plan.addView(b, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(a, 60)), a, 0, 4, 0, 4));
+            if (!done) {
+                TextView tip = U.tv(a, "팁: 상황판에서 카드를 꾹 누르면 이 창 없이 바로 시작", 11, U.SUB, null);
+                tip.setGravity(Gravity.CENTER);
+                plan.addView(tip, U.margins(U.match(), a, 0, 0, 0, 4));
+            }
         }
         LinearLayout r = U.row(a);
         action(r, "결과 입력", U.INK, x -> { a.closeSheet(); ResultSheet.show(a, unit); });

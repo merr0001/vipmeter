@@ -112,6 +112,18 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         gauge = new Views.GaugeView(c);
         col.addView(gauge, U.match());
 
+        // 기록 버튼: 게이지 바로 아래 (엄지 위치)
+        LinearLayout btns = U.row(c);
+        btnRun = U.button(c, "측정 시작", 1, v -> { if (running) stopMeasuring(); else start(); });
+        btns.addView(btnRun, new LinearLayout.LayoutParams(0, U.dp(c, 68), 1));
+        TextView rec = U.button(c, "● 기록", 0, v -> save());
+        rec.setTextSize(23);
+        rec.setElevation(U.dp(c, 3));
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(0, U.dp(c, 68), 2.4f);
+        rl.leftMargin = U.dp(c, 8);
+        btns.addView(rec, rl);
+        col.addView(btns, U.margins(U.match(), c, 0, 2, 0, 12));
+
         // 판정 칩
         LinearLayout verdict = U.row(c);
         tvStatus = U.tv(c, "측정 시작을 누르세요", 14, Color.WHITE, U.BOLD);
@@ -151,14 +163,6 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         etMemo.setTextSize(15);
         col.addView(etMemo, U.margins(U.match(), c, 0, 6, 0, 0));
 
-        LinearLayout btns = U.row(c);
-        btnRun = U.button(c, "측정 시작", 1, v -> { if (running) stopMeasuring(); else start(); });
-        btns.addView(btnRun, new LinearLayout.LayoutParams(0, U.dp(c, 58), 1));
-        TextView rec = U.button(c, "● 기록", 0, v -> save());
-        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(0, U.dp(c, 58), 1.6f);
-        rl.leftMargin = U.dp(c, 10);
-        btns.addView(rec, rl);
-        col.addView(btns, U.margins(U.match(), c, 0, 10, 0, 0));
         return sv;
     }
 
@@ -201,7 +205,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         etHz.setText(Double.isNaN(m.setHz) ? "" : U.f1(m.setHz));
         loading = false;
         Store.Spec s = Store.spec(a, m.spec);
-        if (s != null) {
+        if (s != null && !Double.isNaN(s.target)) {
             gauge.target = s.target; gauge.tol = s.tol;
             gauge.max = Math.max(80, Math.ceil(s.target * 1.6 / 10) * 10);
             tvTarget.setText(String.format(Locale.US, "목표 %s ±%s", U.f1(s.target).replace(".0", ""), U.f1(s.tol).replace(".0", "")));
@@ -242,7 +246,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
             boolean on = sp.name.equals(m.spec);
             r.setBackground(on ? U.box(a, U.INK, 7, U.INK, 0) : U.box(a, U.ENAMEL, 7, U.RULE, 1));
             r.addView(U.tv(a, sp.name, 17, on ? U.PLATE : U.INK, U.MONO_B), U.lpW(1));
-            r.addView(U.tv(a, U.f1(sp.target) + " ±" + U.f1(sp.tol), 14, on ? U.PHOS : U.OK, U.MONO_B));
+            r.addView(U.tv(a, (Double.isNaN(sp.target) ? "목표 미정" : U.f1(sp.target) + " ±" + U.f1(sp.tol)), 14, on ? U.PHOS : U.OK, U.MONO_B));
             r.setOnClickListener(v -> {
                 Store.Machine mm = Store.machine(a, unit);
                 mm.spec = sp.name;

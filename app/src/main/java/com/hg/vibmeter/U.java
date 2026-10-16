@@ -147,7 +147,7 @@ public final class U {
 
     /** 목표 대비 판정: 0 범위 안, 1 낮음, 2 높음, -1 목표 없음 */
     public static int judge(Store.Spec s, double v) {
-        if (s == null || Double.isNaN(v)) return -1;
+        if (s == null || Double.isNaN(v) || Double.isNaN(s.target)) return -1;
         if (Math.abs(v - s.target) <= s.tol) return 0;
         return v < s.target ? 1 : 2;
     }

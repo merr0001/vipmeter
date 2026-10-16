@@ -174,19 +174,21 @@ public final class Views {
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.rgb(0xcf, 0xd6, 0xcd));
             cv.drawRect(0, cy - d, getWidth(), cy + d, p);
-            RectF band = new RectF(x(target - tol), cy - 8 * d, x(target + tol), cy + 8 * d);
-            p.setColor(Color.argb(56, 47, 138, 91));
-            cv.drawRoundRect(band, 3 * d, 3 * d, p);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(d);
-            p.setColor(Color.argb(150, 47, 138, 91));
-            cv.drawRoundRect(band, 3 * d, 3 * d, p);
-            Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
-            tp.setColor(U.OK);
-            tp.setTypeface(U.MONO_B);
-            tp.setTextSize(10.5f * d);
-            tp.setTextAlign(Paint.Align.CENTER);
-            cv.drawText(U.f1(target).replace(".0", ""), x(target), cy - 11 * d, tp);
+            if (!Double.isNaN(target)) {
+                RectF band = new RectF(x(target - tol), cy - 8 * d, x(target + tol), cy + 8 * d);
+                p.setColor(Color.argb(56, 47, 138, 91));
+                cv.drawRoundRect(band, 3 * d, 3 * d, p);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(d);
+                p.setColor(Color.argb(150, 47, 138, 91));
+                cv.drawRoundRect(band, 3 * d, 3 * d, p);
+                Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
+                tp.setColor(U.OK);
+                tp.setTypeface(U.MONO_B);
+                tp.setTextSize(10.5f * d);
+                tp.setTextAlign(Paint.Align.CENTER);
+                cv.drawText(U.f1(target).replace(".0", ""), x(target), cy - 11 * d, tp);
+            }
             p.setStyle(Paint.Style.FILL);
             for (double m : marks) {
                 p.setColor(U.PLATE);
@@ -210,7 +212,7 @@ public final class Views {
             if (fx.length == 0) return;
             float d = dpf(getContext(), 1), W = getWidth(), H = getHeight();
             float L = 30 * d, Rm = 12 * d, T = 10 * d, B = 22 * d;
-            double f0 = Double.MAX_VALUE, f1 = -Double.MAX_VALUE, v0 = target - tol - 4, v1 = target + tol + 4;
+            double f0 = Double.MAX_VALUE, f1 = -Double.MAX_VALUE, v0 = Double.isNaN(target) ? Double.MAX_VALUE : target - tol - 4, v1 = Double.isNaN(target) ? -Double.MAX_VALUE : target + tol + 4;
             for (int i = 0; i < fx.length; i++) {
                 f0 = Math.min(f0, fx[i]); f1 = Math.max(f1, fx[i]);
                 v0 = Math.min(v0, vy[i] - 3); v1 = Math.max(v1, vy[i] + 3);
@@ -224,7 +226,7 @@ public final class Views {
             // 목표 띠
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.argb(46, 47, 138, 91));
-            cv.drawRect(L, (float) Y.applyAsDouble(target + tol), W - Rm, (float) Y.applyAsDouble(target - tol), p);
+            if (!Double.isNaN(target)) cv.drawRect(L, (float) Y.applyAsDouble(target + tol), W - Rm, (float) Y.applyAsDouble(target - tol), p);
             // 격자 + 글자
             Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
             tp.setColor(U.SUB);

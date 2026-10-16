@@ -162,7 +162,7 @@ public class MainActivity extends Activity {
     private LinearLayout buildTabBar() {
         LinearLayout bar = U.row(this);
         bar.setBackgroundColor(U.PLATE);
-        String[] names = {"측정", "타이머", "기록", "가이드", "정보"};
+        String[] names = {"측정", "상황판", "기록", "가이드", "정보"};
         for (int i = 0; i < 5; i++) {
             final int idx = i;
             FrameLayout cell = new FrameLayout(this);
