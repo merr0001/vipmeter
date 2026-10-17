@@ -97,6 +97,21 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
     private FrameLayout lockLayer, modalLayer;
     private boolean loading;
     private Runnable autoClose;
+    private TextView tvMode;
+
+    // 주파수 조정 모드: 설정 주파수를 고치면 3회 측정 평균
+    private static final int ADJ_N = 3, ADJ_MAX = 5;
+    private static final double ADJ_OUT = 0.08;     // 중앙값에서 8% 넘게 튀면 제외
+    private int adjUnit = -1;
+    private double adjPrevHz = Double.NaN, adjPrevV = Double.NaN;
+    private final List<Store.Record> adjVals = new ArrayList<>();
+    private double loadedHz = Double.NaN;
+    // 경계 근처: 한 번 더 재면 2회 평균
+    private static final double EDGE = 1.5;
+    private static final long PEND_MS = 3 * 60 * 1000L;
+    private long pendKey = -1, pendAt;
+    private int pendUnit = -1;
+    private Store.Record pendFirst;
 
     MeasureScreen(MainActivity a) {
         super(a);
@@ -148,6 +163,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
                 Store.Machine m = Store.machine(a, unit);
                 try { m.setHz = Double.parseDouble(e.toString().trim()); } catch (Exception ex) { m.setHz = Double.NaN; }
                 Store.save(a, m);
+                if (!Double.isNaN(m.setHz) && (Double.isNaN(loadedHz) || Math.abs(m.setHz - loadedHz) > 1e-6)) startAdjust();
             }
         });
         hzRow.addView(etHz);
@@ -169,6 +185,18 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         tl.leftMargin = U.dp(c, 8);
         verdict.addView(tvTarget, tl);
         col.addView(verdict, U.match());
+
+        // 주파수 조정 모드 띠
+        tvMode = U.tv(c, "", 13.5f, Color.WHITE, U.BOLD);
+        tvMode.setBackground(U.box(c, Color.rgb(0x2f, 0x5f, 0x8a), 6, Color.rgb(0x2f, 0x5f, 0x8a), 0));
+        tvMode.setPadding(U.dp(c, 12), U.dp(c, 9), U.dp(c, 12), U.dp(c, 9));
+        tvMode.setVisibility(View.GONE);
+        tvMode.setOnClickListener(v -> new android.app.AlertDialog.Builder(a)
+                .setTitle("주파수 조정 모드를 끌까요?")
+                .setMessage("지금까지 잰 조정 측정은 저장하지 않습니다.")
+                .setPositiveButton("끄기", (d, w) -> { stopAdjust(); })
+                .setNegativeButton("계속", null).show());
+        col.addView(tvMode, U.margins(U.match(), c, 0, 8, 0, 0));
 
         // 안내 + 진행 + 확인 항목
         LinearLayout card = U.col(c);
@@ -291,6 +319,10 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         tvSpec.setText(m.spec.isEmpty() ? "스펙 선택" : m.spec);
         etHz.setText(Double.isNaN(m.setHz) ? "" : U.f1(m.setHz));
         loading = false;
+        loadedHz = m.setHz;
+        if (adjUnit != -1 && adjUnit != unit) { adjUnit = -1; adjVals.clear(); }
+        if (pendUnit != unit) { pendKey = -1; pendUnit = -1; pendFirst = null; }
+        updateMode();
         Store.Spec s = Store.spec(a, m.spec);
         if (s != null && !Double.isNaN(s.target)) {
             gauge.target = s.target; gauge.tol = s.tol;
@@ -654,16 +686,211 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
 
     private void complete(Pick p) {
         Store.Record r = recordFrom(p.best);
-        Store.addRecord(a, r);
-        etMemo.setText("");
         double selSec = (p.best.get(RUN - 1).end - p.best.get(0).end) / 1e9 + WINDOW_SEC;
-        exportRaw(r, "완료", p);
+        String sub = String.format(Locale.US, "%.2f Hz · 안정 구간 %.1f초 · 변동 %.1f%%", r.freq, selSec, p.bestCv * 100);
         state = LIFT; offCount = 0;
         lockLayer.setVisibility(View.GONE);
         prog.setProgress(1000);
-        setStatus("측정 완료 · 저장됨", U.OK);
         tvGuide.setText("폰을 떼고 다음 호기를 고르세요");
-        showDone(r, p, selSec);
+
+        if (adjUnit == unit) {                       // 주파수 조정 모드
+            adjVals.add(r);
+            exportRaw(r, "완료 · 조정 " + adjVals.size() + "회째", p);
+            adjustStep(sub);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (pendKey != -1 && pendUnit == unit && now - pendAt <= PEND_MS) {   // 경계 근처 → 2회 평균
+            exportRaw(r, "완료 · 2회째 (평균)", p);
+            averageWithPending(r);
+            return;
+        }
+        pendKey = -1; pendFirst = null;
+        Store.addRecord(a, r);
+        etMemo.setText("");
+        exportRaw(r, "완료", p);
+        setStatus("측정 완료 · 저장됨", U.OK);
+        String note = null;
+        Store.Spec s = Store.spec(a, r.spec);
+        if (s != null && !Double.isNaN(s.target)) {
+            double lo = s.target - s.tol, hi = s.target + s.tol;
+            if (Math.abs(r.vRms - lo) <= EDGE || Math.abs(r.vRms - hi) <= EDGE) {
+                note = "경계 근처예요 · 폰을 뗐다가 다시 대면 2회 평균으로 저장합니다 (3분 안)";
+                pendKey = r.time; pendUnit = unit; pendAt = now; pendFirst = copy(r);
+            }
+        }
+        final long key = r.time; final int ku = r.unit;
+        showResult("✓ 측정 완료 · 저장됨", U.OK, r, sub, note, () -> {
+            removeRecord(key, ku);
+            pendKey = -1; pendFirst = null;
+            Toast.makeText(a, "방금 기록을 지웠습니다", Toast.LENGTH_SHORT).show();
+        }, note == null);
+    }
+
+    // ---------------- 주파수 조정 모드 ----------------
+    private void startAdjust() {
+        if (adjUnit != unit) {
+            Store.Record last = null;
+            for (Store.Record x : Store.records(a)) if (x.unit == unit && (last == null || x.time > last.time)) last = x;
+            adjPrevHz = last == null ? Double.NaN : last.hz();
+            adjPrevV = last == null ? Double.NaN : last.vRms;
+        }
+        adjUnit = unit;
+        adjVals.clear();
+        pendKey = -1; pendFirst = null;
+        updateMode();
+    }
+
+    private void stopAdjust() {
+        adjUnit = -1;
+        adjVals.clear();
+        loadedHz = Store.machine(a, unit).setHz;
+        updateMode();
+    }
+
+    private void updateMode() {
+        if (tvMode == null) return;
+        if (adjUnit == unit) {
+            tvMode.setVisibility(View.VISIBLE);
+            tvMode.setText(String.format(Locale.US, "주파수 조정 모드 · 3회 평균 (%d/%d)  ·  눌러서 끄기",
+                    Math.min(adjVals.size(), ADJ_N), ADJ_N));
+        } else tvMode.setVisibility(View.GONE);
+    }
+
+    private static double medianOf(List<Store.Record> l) {
+        double[] v = new double[l.size()];
+        for (int i = 0; i < v.length; i++) v[i] = l.get(i).vRms;
+        return median(v);
+    }
+
+    /** 중앙값에서 8% 안의 값만 */
+    private List<Store.Record> inliers(List<Store.Record> l) {
+        double m = medianOf(l);
+        List<Store.Record> k = new ArrayList<>();
+        for (Store.Record x : l) if (Math.abs(x.vRms - m) <= ADJ_OUT * m) k.add(x);
+        return k;
+    }
+
+    private void adjustStep(String sub) {
+        int n = adjVals.size();
+        Store.Record r = adjVals.get(n - 1);
+        List<Store.Record> keep = inliers(adjVals);
+        boolean done = (n >= ADJ_N && keep.size() >= ADJ_N) || n >= ADJ_MAX;
+        updateMode();
+        if (!done) {
+            setStatus(String.format(Locale.US, "조정 측정 %d/%d 완료", Math.min(n, ADJ_N), ADJ_N), U.OK);
+            String note;
+            if (n >= ADJ_N) {
+                Store.Record out = null; double far = -1, m = medianOf(adjVals);
+                for (Store.Record x : adjVals) if (Math.abs(x.vRms - m) > far) { far = Math.abs(x.vRms - m); out = x; }
+                note = String.format(Locale.US, "값 하나가 튀어요 (%.1f) · 폰을 뗐다가 한 번 더 재 주세요", out.vRms);
+            } else note = "폰을 뗐다가 다시 대 주세요 · 다음 측정 " + (n + 1) + "/" + ADJ_N;
+            showResult(String.format(Locale.US, "조정 측정 %d/%d", Math.min(n, ADJ_N), ADJ_N), U.OK, r, sub, note, () -> {
+                adjVals.remove(r);
+                updateMode();
+                Toast.makeText(a, "방금 측정을 뺐습니다", Toast.LENGTH_SHORT).show();
+            }, true);
+            return;
+        }
+        List<Store.Record> use = keep.size() >= 2 ? keep : adjVals;
+        Store.Record avg = average(use);
+        double sd = 0;
+        for (Store.Record x : use) sd += (x.vRms - avg.vRms) * (x.vRms - avg.vRms);
+        sd = use.size() > 1 ? Math.sqrt(sd / (use.size() - 1)) : 0;
+        StringBuilder vals = new StringBuilder();
+        for (Store.Record x : use) vals.append(vals.length() > 0 ? ", " : "").append(U.f1(x.vRms));
+        avg.memo = join(etMemo.getText().toString().trim(), String.format(Locale.US, "조정 %d회 평균 ±%.1f", use.size(), sd)
+                + (keep.size() < ADJ_N ? " · 편차 큼" : ""));
+        Store.addRecord(a, avg);
+        etMemo.setText("");
+        adjUnit = -1;
+        adjVals.clear();
+        loadedHz = avg.setHz;
+        updateMode();
+        setStatus("조정 측정 완료 · 평균 저장됨", U.OK);
+        String cmp = null;
+        if (!Double.isNaN(adjPrevV) && adjPrevV > 0) {
+            cmp = String.format(Locale.US, "이전 %s Hz · %.1f  →  지금 %s Hz · %.1f  (%+.0f%%)",
+                    Double.isNaN(adjPrevHz) ? "?" : U.f1(adjPrevHz), adjPrevV,
+                    Double.isNaN(avg.setHz) ? "?" : U.f1(avg.setHz), avg.vRms, 100 * (avg.vRms - adjPrevV) / adjPrevV);
+        }
+        String sub2 = String.format(Locale.US, "±%.1f · %d회 (%s) · %.2f Hz", sd, use.size(), vals, avg.freq);
+        String note = keep.size() < ADJ_N ? "측정마다 차이가 커요 · 고정 상태를 확인해 주세요" : null;
+        final long key = avg.time; final int ku = avg.unit;
+        showResult("✓ 주파수 조정 측정 완료 · 저장됨", U.OK, avg, sub2, join2(cmp, note), () -> {
+            removeRecord(key, ku);
+            Toast.makeText(a, "방금 기록을 지웠습니다", Toast.LENGTH_SHORT).show();
+        }, false);
+    }
+
+    // ---------------- 경계 근처 2회 평균 ----------------
+    private void averageWithPending(Store.Record second) {
+        final Store.Record first = pendFirst;
+        final long key = pendKey; final int ku = pendUnit;
+        pendKey = -1; pendFirst = null;
+        List<Store.Record> two = new ArrayList<>();
+        two.add(first); two.add(second);
+        Store.Record avg = average(two);
+        List<Store.Record> l = Store.records(a);
+        for (Store.Record x : l) if (x.time == key && x.unit == ku) {
+            copyValues(avg, x);
+            x.memo = join(first.memo, String.format(Locale.US, "2회 평균 (%s, %s)", U.f1(first.vRms), U.f1(second.vRms)));
+            break;
+        }
+        Store.saveRecords(a, l);
+        etMemo.setText("");
+        setStatus("2회 평균으로 저장됨", U.OK);
+        String sub = String.format(Locale.US, "%s · %s 평균 · %.2f Hz", U.f1(first.vRms), U.f1(second.vRms), avg.freq);
+        showResult("✓ 2회 평균으로 저장됨", U.OK, avg, sub, null, () -> {
+            List<Store.Record> l2 = Store.records(a);
+            for (Store.Record x : l2) if (x.time == key && x.unit == ku) { copyValues(first, x); x.memo = first.memo; break; }
+            Store.saveRecords(a, l2);
+            Toast.makeText(a, "첫 번째 값으로 되돌렸습니다", Toast.LENGTH_SHORT).show();
+        }, true);
+    }
+
+    // ---------------- 기록 도우미 ----------------
+    private Store.Record average(List<Store.Record> l) {
+        Store.Record r = new Store.Record();
+        Store.Record f = l.get(l.size() - 1);
+        r.time = System.currentTimeMillis();
+        r.unit = f.unit; r.spec = f.spec; r.setHz = f.setHz; r.memo = f.memo;
+        int k = l.size();
+        for (Store.Record x : l) {
+            r.vRms += x.vRms / k; r.freq += x.freq / k; r.zRms += x.zRms / k; r.vPeak += x.vPeak / k;
+            r.pctX += x.pctX / k; r.pctY += x.pctY / k; r.fs += x.fs / k;
+        }
+        return r;
+    }
+
+    private static void copyValues(Store.Record s, Store.Record d) {
+        d.vRms = s.vRms; d.freq = s.freq; d.zRms = s.zRms; d.vPeak = s.vPeak;
+        d.pctX = s.pctX; d.pctY = s.pctY; d.fs = s.fs;
+    }
+
+    private static Store.Record copy(Store.Record s) {
+        Store.Record d = new Store.Record();
+        d.time = s.time; d.unit = s.unit; d.spec = s.spec; d.setHz = s.setHz; d.memo = s.memo;
+        copyValues(s, d);
+        return d;
+    }
+
+    private void removeRecord(long key, int unit) {
+        List<Store.Record> l = Store.records(a);
+        l.removeIf(x -> x.time == key && x.unit == unit);
+        Store.saveRecords(a, l);
+    }
+
+    private static String join(String a, String b) {
+        if (a == null || a.isEmpty()) return b;
+        if (b == null || b.isEmpty()) return a;
+        return a + " · " + b;
+    }
+
+    private static String join2(String a, String b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return a + "\n" + b;
     }
 
     private void fail(Pick p, double elapsed) {
@@ -741,10 +968,11 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         if (state == IDLE) showIdle();
     }
 
-    private void showDone(Store.Record r, Pick p, double selSec) {
+    private void showResult(String title, int color, Store.Record r, String sub, String note, Runnable undo, boolean autoCloseOn) {
         LinearLayout c = modalCard();
-        c.addView(U.tv(a, "✓ 측정 완료 · 저장됨", 19, U.OK, U.BOLD));
-        c.addView(U.tv(a, unit + "호기 · " + (r.spec.isEmpty() ? "스펙 없음" : r.spec), 14.5f, U.SUB, U.BOLD),
+        c.addView(U.tv(a, title, 19, color, U.BOLD));
+        c.addView(U.tv(a, r.unit + "호기 · " + (r.spec.isEmpty() ? "스펙 없음" : r.spec)
+                        + (Double.isNaN(r.setHz) ? "" : " · 설정 " + U.f1(r.setHz) + " Hz"), 14.5f, U.SUB, U.BOLD),
                 U.margins(U.match(), a, 0, 6, 0, 0));
         LinearLayout vr = U.row(a);
         vr.setGravity(Gravity.BOTTOM);
@@ -760,29 +988,29 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
             tr.addView(tg);
             c.addView(tr, U.margins(U.match(), a, 0, 2, 0, 0));
         }
-        c.addView(U.tv(a, String.format(Locale.US, "%.2f Hz · 안정 구간 %.1f초 · 변동 %.1f%%", r.freq, selSec, p.bestCv * 100),
-                12.5f, U.SUB, U.MONO), U.margins(U.match(), a, 0, 10, 0, 0));
+        c.addView(U.tv(a, sub, 12.5f, U.SUB, U.MONO), U.margins(U.match(), a, 0, 10, 0, 0));
+        if (note != null) {
+            int bg = Color.rgb(0xf6, 0xe6, 0xc4);
+            TextView nt = U.tv(a, note, 14, Color.rgb(0x6a, 0x48, 0x08), U.BOLD);
+            nt.setBackground(U.box(a, bg, 8, bg, 0));
+            nt.setPadding(U.dp(a, 12), U.dp(a, 9), U.dp(a, 12), U.dp(a, 9));
+            c.addView(nt, U.margins(U.match(), a, 0, 10, 0, 0));
+        }
         LinearLayout br = U.row(a);
-        final long key = r.time;
-        final int keyUnit = r.unit;
-        TextView undo = U.button(a, "되돌리기", 1, v -> {
-            List<Store.Record> l = Store.records(a);
-            l.removeIf(x -> x.time == key && x.unit == keyUnit);
-            Store.saveRecords(a, l);
-            Toast.makeText(a, "방금 기록을 지웠습니다", Toast.LENGTH_SHORT).show();
-            closeModal();
-        });
-        br.addView(undo, new LinearLayout.LayoutParams(0, U.dp(a, 52), 1));
+        TextView ub = U.button(a, "되돌리기", 1, v -> { undo.run(); closeModal(); });
+        br.addView(ub, new LinearLayout.LayoutParams(0, U.dp(a, 52), 1));
         TextView ok = U.button(a, "확인", 0, v -> closeModal());
         LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(0, U.dp(a, 52), 1.4f);
         ol.leftMargin = U.dp(a, 8);
         br.addView(ok, ol);
         c.addView(br, U.margins(U.match(), a, 0, 14, 0, 0));
-        TextView note = U.tv(a, "5초 뒤 자동으로 닫힘", 11.5f, U.SUB, null);
-        note.setGravity(Gravity.CENTER);
-        c.addView(note, U.margins(U.match(), a, 0, 8, 0, 0));
-        autoClose = this::closeModal;
-        h.postDelayed(autoClose, DONE_AUTOCLOSE_MS);
+        if (autoCloseOn) {
+            TextView nb = U.tv(a, "5초 뒤 자동으로 닫힘", 11.5f, U.SUB, null);
+            nb.setGravity(Gravity.CENTER);
+            c.addView(nb, U.margins(U.match(), a, 0, 8, 0, 0));
+            autoClose = this::closeModal;
+            h.postDelayed(autoClose, DONE_AUTOCLOSE_MS);
+        }
     }
 
     private void showFail(String title, String fix, double elapsed) {

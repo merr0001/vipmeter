@@ -481,6 +481,28 @@ public final class Store {
         sp(c).edit().putBoolean("kindR_v28", true).commit();
     }
 
+    /** v3.0 한 번만: 10/17 측정 반영 — 58-25 R 목표 37±3, 15호기 설정 92.8Hz */
+    public static void migrateV30(Context c) {
+        if (sp(c).getBoolean("data_v30", false)) return;
+        List<Spec> l = specs(c);
+        boolean found = false;
+        for (Spec s : l) if (s.name.equals("58-25 R")) {
+            found = true;
+            if (Double.isNaN(s.target)) { s.target = 37; s.tol = 3; }
+        }
+        if (!found) { Spec s = new Spec("58-25 R", 37); s.tol = 3; l.add(s); }
+        saveSpecs(c, l);
+        Machine m = machine(c, 15);
+        if (Double.isNaN(m.setHz) || Math.abs(m.setHz - 90.8) < 0.05) { m.setHz = 92.8; save(c, m); }
+        List<Record> rl = records(c);
+        boolean ch = false;
+        for (Record r : rl) {
+            if (r.unit == 15 && Math.abs(r.setHz - 90.8) < 0.05 && r.freq > 92.5 && r.freq < 93.1) { r.setHz = 92.8; ch = true; }
+        }
+        if (ch) saveRecords(c, rl);
+        sp(c).edit().putBoolean("data_v30", true).commit();
+    }
+
     /** v2.3 한 번만: 목표 범위를 벗어난(높음·낮음) 측정 기록 지우기 */
     public static void cleanOutOfRangeOnce(Context c) {
         if (sp(c).getBoolean("clean_v23", false)) return;
