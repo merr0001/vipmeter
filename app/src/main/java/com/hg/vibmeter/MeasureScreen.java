@@ -103,6 +103,11 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
     private CapsuleLink cap;
     private TextView tvSrcPhone, tvSrcCap, tvCap;
     private long lastCapT = Long.MIN_VALUE;
+    private TextView tvRock, tvCurveBtn;
+    // 반응 곡선 기록
+    private boolean curveArmed;
+    private long curveStartNs;
+    private Curve curve;
 
     // 주파수 조정 모드: 설정 주파수를 고치면 3회 측정 평균
     private static final int ADJ_N = 3, ADJ_MAX = 5;
@@ -164,6 +169,11 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
         tvCap.setPadding(U.dp(c, 10), 0, 0, 0);
         tvCap.setOnClickListener(v -> capMenu());
         src.addView(tvCap, U.lpW(1));
+        tvCurveBtn = U.tv(c, "📈 반응 곡선", 13, Color.rgb(0x2f, 0x6f, 0xe4), U.BOLD);
+        tvCurveBtn.setPadding(U.dp(c, 10), U.dp(c, 7), U.dp(c, 10), U.dp(c, 7));
+        tvCurveBtn.setBackground(U.box(c, U.PLATE, 18, U.RULE, 1));
+        tvCurveBtn.setOnClickListener(v -> curveMenu());
+        src.addView(tvCurveBtn);
         col.addView(src, U.margins(U.match(), c, 0, 8, 0, 0));
 
         // 설정 주파수
@@ -268,6 +278,9 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
         barY = new Views.FixBar(c);
         tvX = fixRow(win, "X/Z", barX);
         tvY = fixRow(win, "Y/Z", barY);
+        tvRock = U.tv(c, "", 12, U.PHOS, U.MONO);
+        tvRock.setPadding(0, U.dp(c, 4), 0, 0);
+        win.addView(tvRock);
         tvFs = U.tv(c, "", 11, U.PHOS_DIM, U.MONO);
         tvFs.setPadding(0, U.dp(c, 6), 0, 0);
         win.addView(tvFs);
@@ -427,6 +440,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
         if (!listening) return;
         sm.unregisterListener(this);
         if (cap != null) cap.stop();
+        curveArmed = false;
         listening = false;
         a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         state = IDLE;
@@ -511,6 +525,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
         tvSrcPhone.setTextColor(useCap ? U.SUB : Color.WHITE);
         tvSrcCap.setBackground(U.box(a, useCap ? Color.rgb(0x2f, 0x6f, 0xe4) : offBg, 18, U.RULE, 1));
         tvSrcCap.setTextColor(useCap ? Color.WHITE : U.SUB);
+        tvCurveBtn.setVisibility(useCap ? View.VISIBLE : View.GONE);
         paintCap();
     }
 
@@ -524,6 +539,107 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
                 .setPositiveButton("삐 소리", (d, w) -> { if (cap != null) cap.beep(); })
                 .setNeutralButton("다른 캡슐 찾기", (d, w) -> { if (cap != null) cap.forget(); })
                 .setNegativeButton("닫기", null).show();
+    }
+
+    /** {X둘레 각도 ±°, Y둘레 ±°, 100mm당 높이차 ±µm, 위아래 흔들림 대비 %} */
+    static double[] rockMetrics(double[] g, double f, double vRms) {
+        double w = 2 * Math.PI * f;
+        double ax = g[0] * Math.sqrt(2) / w, ay = g[1] * Math.sqrt(2) / w;          // 각도 진폭 (°)
+        double dh = Math.toRadians(Math.max(ax, ay)) * 100.0 * 1000.0;               // 100mm 거리에서 높이차 (µm)
+        double zAmp = vRms * Math.sqrt(2) / w * 1000.0;                              // 위아래 진폭 (µm)
+        return new double[]{ax, ay, dh, zAmp > 0 ? dh / zAmp * 100 : Double.NaN};
+    }
+
+    private String rockText(double f, double v) {
+        if (cap == null) return "";
+        double[] g = cap.rocking();
+        if (g == null) return "기울기 흔들림 —";
+        if (Double.isNaN(f) || f < 20) return String.format(Locale.US, "회전 %.2f · %.2f °/s", g[0], g[1]);
+        double[] m = rockMetrics(g, f, v);
+        return String.format(Locale.US, "기울기 흔들림 ±%.3f° · ±%.3f°  (100mm당 ±%.0fµm, 위아래의 %.0f%%%s)",
+                m[0], m[1], m[2], m[3], m[3] > 30 ? " ⚠" : "");
+    }
+
+    // ---------------- 반응 곡선 ----------------
+    private static String hm(long t) { return new java.text.SimpleDateFormat("MM/dd HH:mm", Locale.KOREA).format(new java.util.Date(t)); }
+
+    private void curveMenu() {
+        Curve old = Curve.load(a, unit);
+        String[] items = old != null ? new String[]{"새로 기록하기", "저장된 곡선 보기 (" + hm(old.time) + ")"} : new String[]{"새로 기록하기"};
+        new android.app.AlertDialog.Builder(a).setTitle(unit + "호기 반응 곡선")
+                .setItems(items, (d, w) -> { if (w == 0) armCurve(); else showCurve(old); })
+                .setNegativeButton("닫기", null).show();
+    }
+
+    private void armCurve() {
+        if (cap == null || cap.state != CapsuleLink.ON) { Toast.makeText(a, "캡슐이 연결된 뒤에 할 수 있습니다", Toast.LENGTH_SHORT).show(); return; }
+        if (state == MEAS) cancel();
+        curveArmed = true; curveStartNs = 0;
+        curve = new Curve(); curve.unit = unit; curve.time = System.currentTimeMillis();
+        Store.Machine m = Store.machine(a, unit); curve.setHz = m.setHz;
+        setStatus("반응 곡선 · 설비를 켜세요", Color.rgb(0x2f, 0x6f, 0xe4));
+        tvGuide.setText("설비가 돌고 있으면 끈 뒤 다시 켜세요. 주파수가 올라가는 10초 동안 기록합니다.");
+        prog.setProgress(0); tvProg.setText("");
+    }
+
+    private void curveStep(long[] t, float[] x, float[] y, float[] z, int n, long tEnd, boolean on) {
+        if (curveStartNs == 0) {
+            if (!on) return;
+            curveStartNs = tEnd;
+        }
+        double el = (tEnd - curveStartNs) / 1e9;
+        // 최근 0.5초로 주파수·세기
+        int s0 = n - 1;
+        while (s0 > 0 && t[s0 - 1] >= tEnd - 500_000_000L) s0--;
+        int m = n - s0;
+        if (m >= 64) {
+            Analyzer.Result r = Analyzer.analyze(Arrays.copyOfRange(t, s0, n), Arrays.copyOfRange(x, s0, n), Arrays.copyOfRange(y, s0, n), Arrays.copyOfRange(z, s0, n), m);
+            if (r.valid && r.freq > 10) {
+                curve.pts.add(new double[]{el, r.freq, r.vRms});
+                gauge.value = r.vRms; gauge.invalidate();
+                setStatus(String.format(Locale.US, "반응 곡선 기록 중 · %.1f Hz · %.1f mm/s", r.freq, r.vRms), Color.rgb(0x2f, 0x6f, 0xe4));
+            }
+        }
+        prog.setProgress((int) Math.min(1000, el / 20.0 * 1000));
+        tvProg.setText(String.format(Locale.US, "%.0f초", el));
+        // 끝: 주파수가 3초 동안 거의 안 변하거나(목표 도달) 20초 경과, 또는 설비 정지
+        boolean steady = false;
+        if (el > 6 && curve.pts.size() > 8) {
+            double lo = 1e9, hi = -1e9, mx = 0;
+            for (double[] p : curve.pts) { mx = Math.max(mx, p[1]); if (p[0] >= el - 3) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); } }
+            steady = hi - lo < 0.4 && hi > 0.9 * mx;
+        }
+        if (steady || el > 20 || (!on && el > 2)) finishCurve();
+    }
+
+    private void finishCurve() {
+        curveArmed = false;
+        state = IDLE; onCount = 0; offCount = 0; wins.clear();
+        if (curve == null || curve.pts.size() < 5) {
+            setStatus("반응 곡선 실패 · 기록이 부족합니다", U.BAD);
+            tvGuide.setText("캡슐을 붙인 상태에서 설비를 켜야 기록됩니다");
+            return;
+        }
+        if (Double.isNaN(curve.setHz)) curve.setHz = curve.pts.get(curve.pts.size() - 1)[1];
+        Curve.save(a, curve);
+        showIdle();
+        showCurve(curve);
+    }
+
+    private void showCurve(Curve k) {
+        if (k == null) return;
+        Context c = a;
+        LinearLayout s = U.col(c);
+        s.setPadding(U.dp(c, 16), U.dp(c, 14), U.dp(c, 16), U.dp(c, 16));
+        s.addView(U.tv(c, k.unit + "호기 반응 곡선", 18, U.INK, U.BOLD));
+        s.addView(U.tv(c, hm(k.time) + " · 설비를 켤 때 주파수별 진동 세기", 12.5f, U.SUB, null));
+        Curve.CurveView v = new Curve.CurveView(c);
+        v.c = k;
+        s.addView(v, U.margins(U.match(), c, 0, 10, 0, 8));
+        s.addView(U.tv(c, k.summary(), 14, U.INK, null));
+        TextView ok = U.button(a, "확인", 0, x -> a.closeSheet());
+        s.addView(ok, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, U.dp(c, 48)), c, 0, 12, 0, 0));
+        a.showSheet(s, null);
     }
 
     /** 권한 허용 후 다시 시작 */
@@ -570,6 +686,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
         while (s0 > 0 && t[s0 - 1] >= tEnd - (long) (SHORT_SEC * 1e9)) s0--;
         double shortStd = Analyzer.std(Arrays.copyOfRange(z, s0, n), n - s0);
         boolean on = shortStd >= MIN_ZRMS;
+        if (curveArmed) { curveStep(t, x, y, z, n, tEnd, on); return; }
 
         Analyzer.Result r = Analyzer.analyze(t, x, y, z, n);
         boolean vib = r.valid && r.rmsZ >= MIN_ZRMS && r.prominence >= MIN_PROM;
@@ -606,6 +723,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
         wave.data = w;
         wave.invalidate();
         tvFs.setText(String.format(Locale.US, "샘플 %.0f Hz · 최근 %.1f초", r.fs, have));
+        tvRock.setText(useCap ? rockText(vib ? r.freq : Double.NaN, vib ? r.vRms : Double.NaN) : "");
         tvZ.setText(U.f2(r.rmsZ));
         if (!vib) {
             if (state != MEAS) { gauge.value = Double.NaN; gauge.invalidate(); }
@@ -1044,6 +1162,14 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener, 
             ex.add(new String[]{"캡슐 샘플 Hz", Double.isNaN(cap.fs) ? "" : String.format(Locale.US, "%.3f", cap.fs)});
             ex.add(new String[]{"캡슐 배터리 %", cap.battery >= 0 ? String.valueOf(cap.battery) : ""});
             ex.add(new String[]{"캡슐 중력 축", cap.axisName()});
+            double[] rk = cap.rocking();
+            if (rk != null) {
+                ex.add(new String[]{"회전 흔들림 °/s (X둘레·Y둘레·비틀림)", String.format(Locale.US, "%.3f / %.3f / %.3f", rk[0], rk[1], rk[2])});
+                double[] m = rockMetrics(rk, r.freq, r.vRms);
+                ex.add(new String[]{"기울기 흔들림 ° (X·Y)", String.format(Locale.US, "±%.4f / ±%.4f", m[0], m[1])});
+                ex.add(new String[]{"100mm당 높이차 µm", String.format(Locale.US, "±%.1f", m[2])});
+                ex.add(new String[]{"위아래 대비 기울기 %", String.format(Locale.US, "%.0f", m[3])});
+            }
         }
         ex.add(new String[]{"대표 주파수 Hz", Double.isNaN(p.fdom) ? "" : String.format(Locale.US, "%.3f", p.fdom)});
         ex.add(new String[]{"통과 창 수", p.passN + " / " + p.span.size()});

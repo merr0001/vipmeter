@@ -1,8 +1,9 @@
-// HG 진동 캡슐 펌웨어 v1.0  (M5Stack Capsule · ESP32-S3 · BMI270)
+// HG 진동 캡슐 펌웨어 v1.1  (M5Stack Capsule · ESP32-S3 · BMI270)
 // 가속도 원본(800Hz)을 블루투스로 진동지기 앱에 보냄. 앱이 기존 규칙으로 RMS 계산.
 //
 // BLE 서비스 4e8f0001-6b2a-4c1e-9d3a-5a17c0de0001
 //  0002 RAW  (notify) : [0]=0xA1 [1]=n [2..5]=u32 첫 샘플 번호 [6..9]=float 실제 샘플 Hz [10..]= n×(int16 x,y,z) 4096=1g
+//        [0]=0xB1 (1초마다) 회전(자이로) [1..12]=float×3 흔들림 RMS °/s [13..24]=float×3 평균 °/s [25..28]=u32 샘플 번호
 //  0003 CTRL (write)  : "S1" 측정 시작, "S0" 멈춤, "B" 삐 소리
 //  0004 STAT (read/notify): "bat=87;mv=3950;ver=1.0;fs=800.12;on=1"
 #include <M5Unified.h>
@@ -15,7 +16,7 @@
 #define C_RAW "4e8f0002-6b2a-4c1e-9d3a-5a17c0de0001"
 #define C_CTL "4e8f0003-6b2a-4c1e-9d3a-5a17c0de0001"
 #define C_STA "4e8f0004-6b2a-4c1e-9d3a-5a17c0de0001"
-static const char* VER = "1.0";
+static const char* VER = "1.1";
 static const int NPK = 36;            // 패킷당 샘플 수 (226바이트)
 
 static uint8_t imuAddr = 0x69;
@@ -24,20 +25,24 @@ static volatile bool connected = false, streaming = false, wantBeep = false;
 static uint32_t sampleIdx = 0, fsStartIdx = 0; static uint64_t fsStartUs = 0; static float fsEst = 800.0f;
 static int16_t pk[NPK * 3]; static int pkN = 0; static uint32_t pkFirst = 0;
 static uint32_t lastStat = 0, lastActive = 0;
+static double gs[3], gq[3]; static uint32_t gn = 0;
+static const float GLSB = 65.536f;   // ±500°/s
 
 static bool wr(uint8_t reg, uint8_t v) { return M5.In_I2C.writeRegister8(imuAddr, reg, v, 400000); }
 static bool rd(uint8_t reg, uint8_t* b, size_t n) { return M5.In_I2C.readRegister(imuAddr, reg, b, n, 400000); }
 
 static void imuStream(bool on) {
   if (on) {
-    wr(0x7D, 0x04); delay(2);          // PWR_CTRL: 가속도만 켬
+    wr(0x7D, 0x06); delay(2);          // PWR_CTRL: 가속도 + 자이로
     wr(0x40, 0xAB);                     // ACC_CONF: ODR 800Hz, normal, 성능 필터
     wr(0x41, 0x02);                     // ACC_RANGE: ±8g
+    wr(0x42, 0xEB);                     // GYR_CONF: ODR 800Hz, normal, 저잡음
+    wr(0x43, 0x02);                     // GYR_RANGE: ±500°/s
     wr(0x48, 0x00);                     // FIFO_CONFIG_0: 꽉 차면 덮어쓰기
-    wr(0x49, 0x40);                     // FIFO_CONFIG_1: 가속도만, 헤더 없음
+    wr(0x49, 0xC0);                     // FIFO_CONFIG_1: 가속도+자이로, 헤더 없음 (프레임 = 자이로6 + 가속도6)
     wr(0x7E, 0xB0);                     // CMD: FIFO 비우기
     delay(2);
-    sampleIdx = 0; pkN = 0; fsStartIdx = 0; fsStartUs = esp_timer_get_time();
+    sampleIdx = 0; pkN = 0; fsStartIdx = 0; fsStartUs = esp_timer_get_time(); gn = 0; for (int k = 0; k < 3; k++) gs[k] = gq[k] = 0;
   } else {
     wr(0x49, 0x00);
     wr(0x7D, 0x00);                     // 센서 끔 (배터리 절약)
@@ -47,15 +52,24 @@ static void imuStream(bool on) {
 static void readFifo() {
   uint8_t lb[2]; if (!rd(0x24, lb, 2)) return;
   int len = (lb[0] | (lb[1] << 8)) & 0x3FFF;
-  len -= len % 6;
+  len -= len % 12;
   static uint8_t buf[240];
   while (len > 0) {
     int n = len > 240 ? 240 : len;
     if (!rd(0x26, buf, n)) return;
     len -= n;
-    for (int i = 0; i + 6 <= n; i += 6) {
-      int16_t x = (int16_t)(buf[i] | (buf[i+1] << 8)), y = (int16_t)(buf[i+2] | (buf[i+3] << 8)), z = (int16_t)(buf[i+4] | (buf[i+5] << 8));
+    for (int i = 0; i + 12 <= n; i += 12) {
+      int16_t g0 = (int16_t)(buf[i] | (buf[i+1] << 8)), g1 = (int16_t)(buf[i+2] | (buf[i+3] << 8)), g2 = (int16_t)(buf[i+4] | (buf[i+5] << 8));
+      int16_t x = (int16_t)(buf[i+6] | (buf[i+7] << 8)), y = (int16_t)(buf[i+8] | (buf[i+9] << 8)), z = (int16_t)(buf[i+10] | (buf[i+11] << 8));
       if (x == -32768 && y == -32768 && z == -32768) continue;   // 빈 프레임
+      float gv[3] = { g0 / GLSB, g1 / GLSB, g2 / GLSB };
+      for (int k = 0; k < 3; k++) { gs[k] += gv[k]; gq[k] += (double)gv[k] * gv[k]; }
+      if (++gn >= 800) {                                          // 1초마다 회전 흔들림 요약
+        uint8_t o[29]; o[0] = 0xB1; float r[3], m[3];
+        for (int k = 0; k < 3; k++) { m[k] = gs[k] / gn; double v = gq[k] / gn - (double)m[k] * m[k]; r[k] = v > 0 ? sqrt(v) : 0; gs[k] = gq[k] = 0; }
+        memcpy(o+1, r, 12); memcpy(o+13, m, 12); uint32_t si = sampleIdx; memcpy(o+25, &si, 4); gn = 0;
+        if (connected) { cRaw->setValue(o, sizeof(o)); cRaw->notify(); }
+      }
       if (pkN == 0) pkFirst = sampleIdx;
       pk[pkN*3] = x; pk[pkN*3+1] = y; pk[pkN*3+2] = z; pkN++; sampleIdx++;
       if (pkN == NPK) {

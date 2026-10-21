@@ -65,6 +65,9 @@ final class CapsuleLink {
     int battery = -1;
     double fs = Double.NaN;
     long packets, lost;
+    /** 회전 흔들림 RMS °/s (캡슐 원래 축 0,1,2), 받은 시각 */
+    final double[] gyroRms = new double[3]; long gyroAt;
+    String fwVer = "";
     private long lastIdx = -1, anIdx = -1; private double anT, anFs;
     private final ArrayDeque<Runnable> ops = new ArrayDeque<>();
     private boolean opBusy;
@@ -228,11 +231,18 @@ final class CapsuleLink {
                 if (p.length != 2) continue;
                 try {
                     if (p[0].equals("bat")) battery = Integer.parseInt(p[1].trim());
+                    else if (p[0].equals("ver")) fwVer = p[1].trim();
                     else if (p[0].equals("fs")) { double f = Double.parseDouble(p[1].trim()); if (f > 100) fs = f; }
                 } catch (Exception ignored) {}
             }
             status = s;
             h.post(() -> { if (state == ON) set(ON, name + " 연결됨"); });
+            return;
+        }
+        if (RAW.equals(u) && v.length >= 25 && (v[0] & 0xff) == 0xB1) {
+            ByteBuffer g = ByteBuffer.wrap(v, 1, 12).order(ByteOrder.LITTLE_ENDIAN);
+            for (int k = 0; k < 3; k++) gyroRms[k] = g.getFloat();
+            gyroAt = System.currentTimeMillis();
             return;
         }
         if (!RAW.equals(u) || v.length < 10 || (v[0] & 0xff) != 0xA1) return;
@@ -280,6 +290,13 @@ final class CapsuleLink {
     }
     private String stMsg = "";
     private final Runnable notifyState = () -> l.onCapsuleState(state, stMsg);
+
+    /** 기울기 흔들림 (°/s RMS): [0]=X축 둘레, [1]=Y축 둘레, [2]=Z축 둘레(비틀림). 3초 넘게 안 오면 null */
+    double[] rocking() {
+        if (gyroAt == 0 || System.currentTimeMillis() - gyroAt > 3000) return null;
+        int zi = zAxis < 0 ? 2 : zAxis, xi = zAxis < 0 ? 0 : xAxis, yi = zAxis < 0 ? 1 : yAxis;
+        return new double[]{gyroRms[xi], gyroRms[yi], gyroRms[zi]};
+    }
 
     String axisName() { return zAxis < 0 ? "판단 중" : "XYZ".charAt(zAxis) + "축"; }
 }
