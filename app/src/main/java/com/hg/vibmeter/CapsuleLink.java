@@ -54,7 +54,7 @@ final class CapsuleLink {
     static final int OFF = 0, SCAN = 1, CONNECTING = 2, ON = 3, NOPERM = 4, NOBT = 5;
 
     private final Activity a;
-    private final Listener l;
+    private Listener l;
     private final Handler h = new Handler(Looper.getMainLooper());
     private BluetoothAdapter ad;
     private BluetoothLeScanner sc;
