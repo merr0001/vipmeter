@@ -35,7 +35,7 @@ import java.util.Locale;
  * 폰 뒷면을 설비에 대면 진동을 감지해 스스로 시작하고,
  * 가장 안정된 구간을 골라 저장한 뒤 완료/실패 메시지를 띄운다.
  */
-class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
+class MeasureScreen extends MainActivity.Screen implements SensorEventListener, CapsuleLink.Listener {
 
     // ---- 계산 창 ----
     private static final double WINDOW_SEC = 3.0;   // 값 하나 = 최근 3초
@@ -98,6 +98,11 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
     private boolean loading;
     private Runnable autoClose;
     private TextView tvMode;
+    // 측정 방식: 폰 센서 / 캡슐
+    private boolean useCap;
+    private CapsuleLink cap;
+    private TextView tvSrcPhone, tvSrcCap, tvCap;
+    private long lastCapT = Long.MIN_VALUE;
 
     // 주파수 조정 모드: 설정 주파수를 고치면 3회 측정 평균
     private static final int ADJ_N = 3, ADJ_MAX = 5;
@@ -118,6 +123,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         sm = (SensorManager) a.getSystemService(Context.SENSOR_SERVICE);
         acc = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         unit = Store.getInt(a, "measureUnit", 1);
+        useCap = Store.getInt(a, "measureSrc", 0) == 1;
     }
 
     @Override
@@ -143,6 +149,22 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         tvSpec.setOnClickListener(v -> pickSpec());
         plate.addView(tvSpec);
         col.addView(plate, U.match());
+
+        // 측정 방식 [폰] [캡슐] + 캡슐 상태
+        LinearLayout src = U.row(c);
+        src.setGravity(Gravity.CENTER_VERTICAL);
+        tvSrcPhone = U.tv(c, "📱 폰", 14, U.INK, U.BOLD);
+        tvSrcCap = U.tv(c, "🔵 캡슐", 14, U.INK, U.BOLD);
+        for (TextView t : new TextView[]{tvSrcPhone, tvSrcCap}) { t.setGravity(Gravity.CENTER); t.setPadding(U.dp(c, 14), U.dp(c, 7), U.dp(c, 14), U.dp(c, 7)); }
+        tvSrcPhone.setOnClickListener(v -> setSource(false));
+        tvSrcCap.setOnClickListener(v -> setSource(true));
+        src.addView(tvSrcPhone);
+        src.addView(tvSrcCap, U.margins(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT), c, 6, 0, 0, 0));
+        tvCap = U.tv(c, "", 12.5f, U.SUB, null);
+        tvCap.setPadding(U.dp(c, 10), 0, 0, 0);
+        tvCap.setOnClickListener(v -> capMenu());
+        src.addView(tvCap, U.lpW(1));
+        col.addView(src, U.margins(U.match(), c, 0, 8, 0, 0));
 
         // 설정 주파수
         LinearLayout hzRow = U.row(c);
@@ -176,6 +198,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         // 상태 + 목표
         LinearLayout verdict = U.row(c);
         tvStatus = U.tv(c, "", 15, Color.WHITE, U.BOLD);
+        tvStatus.setOnClickListener(v -> { if (useCap && state == LIFT && modalLayer.getVisibility() != View.VISIBLE) { state = IDLE; onCount = 0; offCount = 0; wins.clear(); showIdle(); } });
         tvStatus.setPadding(U.dp(c, 12), U.dp(c, 10), U.dp(c, 12), U.dp(c, 10));
         verdict.addView(tvStatus, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.6f));
         tvTarget = U.tv(c, "", 13.5f, U.INK, null);
@@ -377,16 +400,20 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         a.showSheet(s, null);
     }
 
-    @Override void onShow() { loadMachine(); tick(); startSensor(); }
+    @Override void onShow() { loadMachine(); tick(); paintSource(); startSensor(); }
     @Override void onHide() { stopMeasuring(); }
 
     // ---------------- 센서 ----------------
     private void startSensor() {
         if (listening) return;
-        if (acc == null) { setStatus("가속도 센서를 찾지 못했습니다", U.BAD); return; }
-        synchronized (lock) { head = 0; count = 0; rHead = 0; rCount = 0; }
+        if (!useCap && acc == null) { setStatus("가속도 센서를 찾지 못했습니다", U.BAD); return; }
+        synchronized (lock) { head = 0; count = 0; rHead = 0; rCount = 0; lastCapT = Long.MIN_VALUE; }
         state = IDLE; onCount = 0; offCount = 0; wins.clear();
-        sm.registerListener(this, acc, SensorManager.SENSOR_DELAY_FASTEST);
+        if (useCap) {
+            if (cap == null) cap = new CapsuleLink(a, this);
+            cap.resetAxes();
+            cap.start();
+        } else sm.registerListener(this, acc, SensorManager.SENSOR_DELAY_FASTEST);
         listening = true;
         a.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (modalLayer.getVisibility() != View.VISIBLE) showIdle();
@@ -399,6 +426,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         h.removeCallbacks(loop);
         if (!listening) return;
         sm.unregisterListener(this);
+        if (cap != null) cap.stop();
         listening = false;
         a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         state = IDLE;
@@ -425,6 +453,81 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         }
     }
     @Override public void onAccuracyChanged(Sensor s, int a) {}
+
+    // ---------------- 캡슐 ----------------
+    @Override public void onCapsuleSamples(long[] t, float[] x, float[] y, float[] z, int n) {
+        if (!useCap || !listening) return;
+        synchronized (lock) {
+            if (t[0] < lastCapT) { head = 0; count = 0; rHead = 0; rCount = 0; }   // 캡슐이 다시 시작됨
+            for (int i = 0; i < n; i++) {
+                bt[head] = t[i]; bx[head] = x[i]; by[head] = y[i]; bz[head] = z[i];
+                head = (head + 1) % CAP;
+                if (count < CAP) count++;
+                rt[rHead] = t[i]; rx[rHead] = x[i]; ry[rHead] = y[i]; rz[rHead] = z[i];
+                rHead = (rHead + 1) % RAW_CAP;
+                if (rCount < RAW_CAP) rCount++;
+            }
+            lastCapT = t[n - 1];
+        }
+    }
+
+    @Override public void onCapsuleState(int st, String msg) {
+        if (!useCap || tvCap == null) return;
+        paintCap();
+        if (st != CapsuleLink.ON && state == MEAS) cancel();
+        if (state == IDLE && modalLayer.getVisibility() != View.VISIBLE) showIdle();
+    }
+
+    private void paintCap() {
+        if (!useCap || cap == null) { tvCap.setText(""); return; }
+        String s;
+        int col = U.SUB;
+        switch (cap.state) {
+            case CapsuleLink.ON:
+                s = "● " + cap.name + (cap.battery >= 0 ? " · 🔋" + cap.battery + "%" : "") + (Double.isNaN(cap.fs) ? "" : String.format(Locale.US, " · %.0fHz", cap.fs));
+                col = cap.battery >= 0 && cap.battery < 20 ? U.BAD : U.OK; break;
+            case CapsuleLink.NOPERM: s = "⚠ 블루투스 권한 필요 · 눌러서 허용"; col = U.BAD; break;
+            case CapsuleLink.NOBT: s = "⚠ 폰 블루투스를 켜 주세요"; col = U.BAD; break;
+            case CapsuleLink.OFF: s = "연결 안 됨"; break;
+            default: s = "◌ 캡슐 연결 중…"; col = U.WARN;
+        }
+        tvCap.setText(s);
+        tvCap.setTextColor(col);
+    }
+
+    private void setSource(boolean c) {
+        if (c == useCap) { if (c) capMenu(); return; }
+        if (state == MEAS) return;
+        stopMeasuring();
+        useCap = c;
+        Store.putInt(a, "measureSrc", c ? 1 : 0);
+        paintSource();
+        startSensor();
+    }
+
+    private void paintSource() {
+        int on = U.INK, offBg = U.PLATE;
+        tvSrcPhone.setBackground(U.box(a, useCap ? offBg : on, 18, U.RULE, 1));
+        tvSrcPhone.setTextColor(useCap ? U.SUB : Color.WHITE);
+        tvSrcCap.setBackground(U.box(a, useCap ? Color.rgb(0x2f, 0x6f, 0xe4) : offBg, 18, U.RULE, 1));
+        tvSrcCap.setTextColor(useCap ? Color.WHITE : U.SUB);
+        paintCap();
+    }
+
+    private void capMenu() {
+        if (!useCap) return;
+        if (cap != null && cap.state == CapsuleLink.NOPERM) { a.requestPermissions(CapsuleLink.perms(), 41); return; }
+        String info = cap == null ? "" : (cap.name.isEmpty() ? "연결된 캡슐 없음" : cap.name) + (cap.battery >= 0 ? "\n배터리 " + cap.battery + "%" : "")
+                + (Double.isNaN(cap.fs) ? "" : String.format(Locale.US, "\n샘플 %.2f Hz", cap.fs)) + "\n중력 방향 " + cap.axisName()
+                + (cap.packets > 0 ? String.format(Locale.US, "\n받은 묶음 %d · 빠짐 %d", cap.packets, cap.lost) : "");
+        new android.app.AlertDialog.Builder(a).setTitle("진동 캡슐").setMessage(info)
+                .setPositiveButton("삐 소리", (d, w) -> { if (cap != null) cap.beep(); })
+                .setNeutralButton("다른 캡슐 찾기", (d, w) -> { if (cap != null) cap.forget(); })
+                .setNegativeButton("닫기", null).show();
+    }
+
+    /** 권한 허용 후 다시 시작 */
+    void onPermResult() { if (useCap && listening && cap != null) cap.start(); }
 
     private void setStatus(String t, int color) {
         tvStatus.setText(t);
@@ -525,7 +628,9 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
     // ---------------- 상태 ----------------
     private void showIdle() {
         setStatus("진동을 기다리는 중", U.SUB);
-        tvGuide.setText("폰 뒷면을 설비 중앙에 대고 손가락으로 누르세요");
+        if (useCap && state == LIFT) { setStatus("측정 완료 · 다시 재려면 누르세요", U.OK); tvGuide.setText("다른 호기로 옮기려면 캡슐을 떼서 붙이세요"); return; }
+        tvGuide.setText(useCap ? (cap != null && cap.state == CapsuleLink.ON ? "캡슐을 설비 중앙에 자석으로 붙이세요 · 진동이 잡히면 자동으로 잽니다" : "캡슐 전원을 켜면 자동으로 연결됩니다")
+                : "폰 뒷면을 설비 중앙에 대고 손가락으로 누르세요");
         prog.setProgress(0);
         tvProg.setText("");
         for (TextView c : checks) setCheck(c, 0, null);
@@ -540,7 +645,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         wins.clear();
         gauge.hist.clear();
         setStatus("자동 시작 · 측정 중", U.WARN);
-        tvGuide.setText("그대로 누르고 계세요");
+        tvGuide.setText(useCap ? "측정 중 · 캡슐을 건드리지 마세요" : "그대로 누르고 계세요");
         prog.setProgress(0);
         tvProg.setText(String.format(Locale.US, "안정 구간 0.0 / %.0f초", NEED_SEC));
         for (TextView c : checks) setCheck(c, 0, null);
@@ -552,7 +657,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         onCount = 0;
         wins.clear();
         showIdle();
-        setStatus("측정 취소 · 폰을 뗐습니다", U.SUB);
+        setStatus(useCap ? "측정 취소 · 진동이 멈췄습니다" : "측정 취소 · 폰을 뗐습니다", U.SUB);
     }
 
     /** 0 대기, 1 통과, 2 문제 */
@@ -681,6 +786,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         r.vRms = v / k; r.freq = f / k; r.zRms = z / k; r.vPeak = pk / k;
         r.pctX = px / k; r.pctY = py / k; r.fs = fs / k;
         r.memo = etMemo.getText().toString().trim();
+        if (useCap) r.memo = r.memo.isEmpty() ? "[캡슐]" : "[캡슐] " + r.memo;
         return r;
     }
 
@@ -691,7 +797,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         state = LIFT; offCount = 0;
         lockLayer.setVisibility(View.GONE);
         prog.setProgress(1000);
-        tvGuide.setText("폰을 떼고 다음 호기를 고르세요");
+        tvGuide.setText(useCap ? "완료 · 다시 재려면 위 상태 칸을 누르세요" : "폰을 떼고 다음 호기를 고르세요");
 
         if (adjUnit == unit) {                       // 주파수 조정 모드
             adjVals.add(r);
@@ -906,6 +1012,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
             title = "진동이 약하거나 주파수가 불안정해요";
             fix = "폰 뒷면을 설비 중앙에 대고 다시 측정해 주세요";
         }
+        if (useCap) fix = fix.replace("폰 뒷면을 설비 중앙에 대고", "캡슐이 설비 중앙에 단단히 붙었는지 확인하고").replace("폰을", "캡슐을").replace("손가락으로 꾹 누르고", "").replace("누르는 힘", "자석 고정");
         List<Win> src = p.span.isEmpty() ? wins : p.span;
         if (!src.isEmpty()) exportRaw(recordFrom(src), "실패 · " + title, p);
         state = LIFT; offCount = 0;
@@ -931,7 +1038,13 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         if (n < 2) return;
         long wall0 = System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - t[0]) / 1_000_000L;
         List<String[]> ex = new ArrayList<>();
-        ex.add(new String[]{"측정 방식", "자동"});
+        ex.add(new String[]{"측정 방식", useCap ? "자동 · 캡슐" : "자동 · 폰"});
+        if (useCap && cap != null) {
+            ex.add(new String[]{"캡슐", cap.name});
+            ex.add(new String[]{"캡슐 샘플 Hz", Double.isNaN(cap.fs) ? "" : String.format(Locale.US, "%.3f", cap.fs)});
+            ex.add(new String[]{"캡슐 배터리 %", cap.battery >= 0 ? String.valueOf(cap.battery) : ""});
+            ex.add(new String[]{"캡슐 중력 축", cap.axisName()});
+        }
         ex.add(new String[]{"대표 주파수 Hz", Double.isNaN(p.fdom) ? "" : String.format(Locale.US, "%.3f", p.fdom)});
         ex.add(new String[]{"통과 창 수", p.passN + " / " + p.span.size()});
         ex.add(new String[]{"연속5 변동 %", Double.isNaN(p.bestCv) ? "" : String.format(Locale.US, "%.2f", p.bestCv * 100)});
@@ -943,7 +1056,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         StringBuilder wl = new StringBuilder();
         for (Win w : p.span) wl.append(String.format(Locale.US, "%.2f:%.2f%s ", (w.end - t[0]) / 1e9, w.v, w.pass ? "" : "x"));
         ex.add(new String[]{"창 값 (끝시각s:mm/s · x=불통과)", wl.toString().trim()});
-        RawExport.saveAsync(a, r, verdict, ex.toArray(new String[0][]), t, x, y, z, n, wall0, acc);
+        RawExport.saveAsync(a, r, verdict, ex.toArray(new String[0][]), t, x, y, z, n, wall0, useCap ? null : acc);
     }
 
     // ---------------- 메시지 창 ----------------
@@ -965,7 +1078,7 @@ class MeasureScreen extends MainActivity.Screen implements SensorEventListener {
         if (autoClose != null) h.removeCallbacks(autoClose);
         autoClose = null;
         modalLayer.setVisibility(View.GONE);
-        if (state == IDLE) showIdle();
+        if (state == IDLE || (useCap && state == LIFT)) showIdle();
     }
 
     private void showResult(String title, int color, Store.Record r, String sub, String note, Runnable undo, boolean autoCloseOn) {

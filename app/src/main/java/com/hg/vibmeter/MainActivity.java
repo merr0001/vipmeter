@@ -57,6 +57,11 @@ public class MainActivity extends Activity {
     InfoScreen info;
 
     @Override
+    @Override public void onRequestPermissionsResult(int rc, String[] p, int[] g) {
+        super.onRequestPermissionsResult(rc, p, g);
+        if (rc == 41 && measure != null) measure.onPermResult();
+    }
+
     protected void onCreate(Bundle s) {
         super.onCreate(s);
         getWindow().setStatusBarColor(U.ENAMEL);
