@@ -1,4 +1,4 @@
-// HG 진동 캡슐 펌웨어 v1.1  (M5Stack Capsule · ESP32-S3 · BMI270)
+// HG 진동 캡슐 펌웨어 v1.2  (M5Stack Capsule · ESP32-S3 · BMI270)
 // 가속도 원본(800Hz)을 블루투스로 진동지기 앱에 보냄. 앱이 기존 규칙으로 RMS 계산.
 //
 // BLE 서비스 4e8f0001-6b2a-4c1e-9d3a-5a17c0de0001
@@ -16,7 +16,7 @@
 #define C_RAW "4e8f0002-6b2a-4c1e-9d3a-5a17c0de0001"
 #define C_CTL "4e8f0003-6b2a-4c1e-9d3a-5a17c0de0001"
 #define C_STA "4e8f0004-6b2a-4c1e-9d3a-5a17c0de0001"
-static const char* VER = "1.1";
+static const char* VER = "1.2";
 static const int NPK = 36;            // 패킷당 샘플 수 (226바이트)
 
 static uint8_t imuAddr = 0x69;
@@ -109,6 +109,7 @@ class CtlCb : public BLECharacteristicCallbacks {
 void setup() {
   auto cfg = M5.config(); cfg.internal_imu = true; cfg.internal_spk = true;
   M5.begin(cfg);
+  setCpuFrequencyMhz(80);               // 배터리 절약 (측정·블루투스는 80MHz로 충분)
   uint8_t id = 0;
   imuAddr = 0x69; if (!rd(0x00, &id, 1) || id != 0x24) { imuAddr = 0x68; rd(0x00, &id, 1); }
   imuStream(false);

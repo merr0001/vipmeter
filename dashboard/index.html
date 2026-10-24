@@ -1,0 +1,613 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>설비 상황판</title>
+<style>
+:root{--bg:#eef1f5;--card:#ffffff;--line:#dde3ea;--tx:#1b2430;--mut:#6b7785;--ok:#1f9d63;--warn:#d4900f;--bad:#d93b33;--off:#a3adb8;--acc:#2f6fe4}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:"Noto Sans KR","Malgun Gothic",sans-serif;padding:14px 18px;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:24px;margin:0}.clock{color:var(--mut);font-size:15px;font-variant-numeric:tabular-nums}
+.sum{margin-left:auto;display:flex;gap:8px}.pill{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:14px}.pill b{font-size:20px;margin-left:6px}
+.btn{background:#ffffff;color:var(--acc);border:1px solid #c9d7f0;border-radius:10px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn:hover{background:#eef3fd}.btn.on{background:var(--acc);color:#ffffff}.btn.red{color:#d93b33;border-color:#f2c4c1}.btn.grn{color:#14824f;border-color:#9fd9bb}
+.ea{display:none}.editing .ea{display:inline-block}
+.alerts{display:flex;gap:8px;overflow:auto;margin:10px 0;min-height:30px;scrollbar-width:thin}
+.alerts span{white-space:nowrap;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 12px;font-size:13px}
+.tables{flex:1;display:grid;grid-template-columns:repeat(6,1fr);grid-auto-flow:dense;gap:12px;align-content:stretch}
+.tb{box-shadow:0 1px 3px #1b24300d;background:#f8fafc;border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column}
+.editing .tb{box-shadow:0 1px 3px #1b24300d;border-style:dashed;border-color:#2f6fe488;min-height:160px}.tb.hov{background:#e8f0fe}
+.tbh{display:flex;justify-content:space-between;gap:10px;font-size:14px;color:var(--mut);margin-bottom:8px}.tbh .nm{font-weight:700}.beat{color:var(--warn);font-weight:700}
+.tiles{display:grid;gap:10px;flex:1}
+.t{box-shadow:0 1px 4px #1b243014;touch-action:none;cursor:pointer;background:var(--card);border-radius:12px;padding:10px 14px;border-left:8px solid var(--ok);position:relative;user-select:none;display:flex;flex-direction:column}
+.t.warn{border-color:var(--warn)}.t.bad{border-color:var(--bad);background:#fff1f0}.t.off{border-color:var(--off);background:#f1f3f5}
+.editing .t{cursor:grab;outline:1px dashed #2f6fe466}
+.t.fit-g{box-shadow:0 0 0 4px var(--ok)}.t.fit-y{box-shadow:0 0 0 4px var(--warn)}.t.fit-r{box-shadow:0 0 0 4px var(--bad)}
+.fitlab{position:absolute;top:-12px;left:12px;font-size:12px;font-weight:800;background:var(--bg);padding:1px 8px;border-radius:8px}
+.top{display:flex;justify-content:space-between;align-items:center}
+.n{font-size:18px;color:var(--mut);font-weight:800}
+.st{font-size:14px;font-weight:800;padding:3px 10px;border-radius:20px;background:#e3f6ec;color:#14824f}.st.stop{background:#e9ecef;color:#6b7785}
+.sp{font-size:clamp(26px,2.3vw,40px);font-weight:900;margin:4px 0 0;letter-spacing:-1px;line-height:1.1}
+.lot{font-size:clamp(13px,1vw,18px);white-space:nowrap;font-weight:700;color:#3a4654;font-family:Consolas,monospace;margin:3px 0}
+.ch{font-size:15px;white-space:nowrap;color:#9aa4ae}.ch b{color:var(--acc)}
+.t.off .sp,.t.off .lot{color:#9aa4ae}
+.stg{display:flex;align-items:center;gap:10px;margin-top:6px}.cur{font-size:clamp(22px,1.9vw,32px);font-weight:900;color:#ffffff;background:var(--acc);border-radius:8px;padding:0 10px;line-height:1.25}.t.off .cur{background:#c5ccd3;color:#6b7785}
+.cells{display:flex;gap:4px;align-items:center;margin:7px 0 0}.cells i{flex:1;height:18px;border-radius:5px;background:#f1f4f7;border:1px solid #e1e7ee}.cells i.f{background:#34b38a;border-color:#2ea27d}.cells span{font-size:16px;font-weight:800;margin-left:6px;min-width:40px;text-align:right}
+.t.drag-src{opacity:.35}.ghost{position:fixed;pointer-events:none;z-index:50;opacity:1;transform:rotate(2deg);box-shadow:0 10px 30px #1b243055}.t.tgt{outline:4px solid var(--acc);outline-offset:2px}
+.bar{height:9px;background:#eef2f6;border-radius:5px;margin:10px 0 4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.pg{font-size:15px;display:flex;justify-content:space-between}.pg b{font-size:17px}
+.v{font-size:14px;margin-top:6px;color:var(--mut)}.v b{color:var(--tx);font-size:18px}
+.m{font-size:14px;margin-top:auto;padding-top:4px;font-weight:700}.warn .m{color:var(--warn)}.bad .m{color:var(--bad)}.off .m{color:#9aa4ae}
+.sn{font-size:12px;color:var(--mut);margin-top:3px;display:flex;align-items:center;gap:4px;white-space:nowrap}.bat{display:inline-block;width:26px;height:10px;border:1.5px solid #9aa4ae;border-radius:2px;padding:1px;vertical-align:middle}.bat i{display:block;height:100%}.sn b{font-size:12px}
+.sig{display:inline-flex;gap:2px;align-items:flex-end;height:16px}.sig i{width:4px;border-radius:1px}.stbl select{padding:5px}
+.empty .sp{color:#b4bcc5}
+/* 서랍(LOT) · 모달(세부) */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:470px;background:#ffffff;border-left:1px solid var(--line);padding:18px;overflow:auto;transform:translateX(100%);transition:.2s;z-index:20;box-shadow:-10px 0 30px #0002}
+.drawer.open{transform:none}
+.dh{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.dh h2{margin:0;font-size:20px}
+.x{background:none;border:0;color:var(--mut);font-size:26px;cursor:pointer}
+form{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label{font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:4px}
+input,select,textarea{background:#f6f8fa;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px;font-size:14px;font-family:inherit;min-width:0}
+.err{color:var(--bad);font-size:13px;min-height:18px;grid-column:1/-1}
+.sec{font-size:14px;color:var(--mut);margin:16px 0 8px;font-weight:800}
+.qi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:grab}
+.qi.pick{border-color:var(--acc)}
+.qi .r1{display:flex;align-items:baseline;gap:10px}.qi b{font-size:18px}.qi .lot{font-size:13px;margin:0}
+.qi .r2{display:flex;gap:6px;margin-top:8px;align-items:center;font-size:13px;color:var(--mut)}.qi .r2 select{padding:5px}.qi .r2 .btn{padding:5px 10px}
+.rec{color:var(--ok);margin-left:auto}
+.recbox{background:#eefaf3;border:1px solid #9fd9bb;border-radius:10px;padding:10px;margin-top:10px;font-size:13px;display:none}.recbox div{padding:3px 0}
+.modal{position:fixed;inset:0;background:#1b243055;display:none;align-items:center;justify-content:center;z-index:30}.modal.open{display:flex}
+.mb{background:#ffffff;border:1px solid var(--line);border-radius:16px;width:min(1500px,96vw);max-height:94vh;overflow:auto;padding:20px}
+.mgrid2{display:grid;grid-template-columns:1fr 330px;gap:18px}
+.chip{font-size:14px;font-weight:800;padding:4px 12px;border-radius:20px;margin-left:12px;margin-right:auto}
+.pstep{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:800;color:#b4bcc5}.pstep span.on{background:var(--acc);color:#fff;border-radius:8px;padding:2px 12px;font-size:24px}.pstep span.dn{color:var(--ok)}.pstep>i{font-style:normal;color:#c5ccd3}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.g3{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px}.g2{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
+.mc{background:#f8fafc;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.mt{font-size:13px;color:var(--mut);font-weight:700}.mv{font-size:34px;font-weight:900;letter-spacing:-.5px;margin:2px 0 4px}.mv small{font-size:14px;color:var(--mut);font-weight:600;margin-left:3px}
+.hb{position:relative;height:44px;margin-top:6px}.hb .tr{position:absolute;left:0;right:0;top:12px;height:12px;background:#eef2f6;border-radius:6px;overflow:hidden}.hb .tr i{position:absolute;top:0;bottom:0}
+.hb b{position:absolute;top:4px;width:6px;height:28px;margin-left:-3px;background:#1b2430;border-radius:3px;box-shadow:0 0 0 2px #fff}
+.hb u{position:absolute;top:8px;height:20px;border-left:2px solid #9aa4ae;text-decoration:none}.hb u span{position:absolute;top:20px;left:-20px;width:40px;text-align:center;font-size:10px;color:var(--mut)}
+.hb .sc{position:absolute;left:0;right:0;top:28px;display:flex;justify-content:space-between;font-size:10px;color:#b4bcc5}
+.rg input,.ctl input,.ctl select{width:100%}.cap{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.45}.cap b{color:var(--tx)}
+.xyz{display:flex;gap:12px;align-items:center}.xyzb{flex:1}.xr{display:grid;grid-template-columns:62px 1fr 42px;align-items:center;gap:8px;font-size:13px;margin:6px 0}
+.xt{height:12px;background:#eef2f6;border-radius:6px;position:relative;overflow:visible}.xt i{display:block;height:100%;border-radius:6px}.xt em{position:absolute;top:-3px;bottom:-3px;border-left:2px dashed #d93b33}
+.hwrap{max-height:190px;overflow:auto}.rg{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.mgrid{display:grid;grid-template-columns:1.2fr 1fr;gap:18px}
+.kv{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}.kv div{background:#f6f8fa;border-radius:8px;padding:8px;font-size:12px;color:var(--mut)}.kv b{display:block;color:var(--tx);font-size:19px}
+.hist{width:100%;border-collapse:collapse;font-size:13px}.hist td,.hist th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}.hist th{color:var(--mut);font-weight:400}
+.ctl{display:flex;flex-direction:column;gap:10px}.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.row label{flex:1}
+.ctl .box{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px}.ctl .box h4{margin:0 0 8px;font-size:13px;color:var(--mut)}
+nav{display:flex;gap:4px;background:#e4e9ef;border-radius:12px;padding:4px}nav a{padding:7px 16px;border-radius:9px;color:var(--mut);font-weight:800;font-size:15px;text-decoration:none}nav a.on{background:#fff;color:var(--acc);box-shadow:0 1px 3px #1b243022}
+.lk{font-size:13px;font-weight:800;text-decoration:none;padding:6px 10px;border-radius:8px;background:#fff;border:1px solid var(--line)}
+body:not([data-pg=board]) .bo{display:none!important}.page{flex:1;min-height:0}#pg-board{display:flex;flex-direction:column}
+#pg-caps,#pg-machine,#pg-data{padding-top:14px;overflow:auto}
+.box2{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}.box2 h3{margin:0 0 12px;font-size:17px}
+.pgrid{display:grid;grid-template-columns:1fr 1.4fr;gap:14px}
+.conn{border-radius:12px;padding:14px;background:#f1f3f5;display:flex;flex-direction:column;gap:4px}.conn b{font-size:22px}.conn span{color:var(--mut);font-size:14px}
+.conn.on{background:#dff4e9}.conn.on b{color:var(--ok)}.conn.sim{background:#e8f0fe}.conn.sim b{color:var(--acc)}.conn.wait{background:#fdf0d3}.conn.wait b{color:var(--warn)}
+.rg3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.rg3 label{font-size:13px;color:var(--tx);font-weight:700}.rg3 em{font-style:normal;font-weight:400;font-size:11px;color:var(--mut)}.rg3 input{font-size:18px;font-weight:800}
+.est{background:#f6f8fa;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.mlay{display:grid;grid-template-columns:230px 1fr;gap:14px;height:100%}.mlist{display:flex;flex-direction:column;gap:6px;overflow:auto}
+.mi{display:grid;grid-template-columns:auto 1fr;gap:0 8px;padding:9px 12px;border-radius:10px;background:#fff;border:1px solid var(--line);border-left:6px solid var(--ok);text-decoration:none;color:var(--tx)}
+.mi span{font-size:13px;color:var(--mut);text-align:right}.mi i{grid-column:1/-1;font-style:normal;font-size:12px;color:var(--mut)}.mi.on{outline:2px solid var(--acc)}.mi.warn{border-left-color:var(--warn)}.mi.bad{border-left-color:var(--bad)}.mi.off{border-left-color:var(--off)}
+.mbody{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;overflow:auto}
+.filt{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:14px}.filt label{font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:4px}
+.g6{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}.kp{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;border-top:4px solid var(--line)}.kp.ok{border-top-color:var(--ok)}.kp.warn{border-top-color:var(--warn)}.kp.bad{border-top-color:var(--bad)}
+.kv2{font-size:26px;font-weight:900;margin:2px 0}.g2c{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.tscroll{max-height:420px;overflow:auto}
+.remote .bo,.remote #nav a[data-p=caps],.remote #nav a[data-p=data],.remote #nav a[data-p=settings],.remote .ctl,.remote #drw{display:none!important}.remote .mgrid2{grid-template-columns:1fr}
+.g2s{display:grid;grid-template-columns:1fr 1fr;gap:14px}.srow{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid #eef1f5}.srow:last-child{border:0}
+.srow b{display:block;font-size:15px}.srow span{font-size:12.5px;color:var(--mut)}.urls{display:flex;flex-direction:column;gap:4px;align-items:flex-end}.urls code{font-size:16px;font-weight:800;color:var(--acc)}
+.sw{position:relative;width:48px;height:27px;flex:none}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:14px;background:#c5ccd3;transition:.15s}.sw i:after{content:"";position:absolute;left:3px;top:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:.15s}.sw input:checked+i{background:var(--ok)}.sw input:checked+i:after{left:24px}
+</style></head><body>
+<header><h1>H.G 진동기 상황판</h1><span class="clock" id="clk"></span>
+<nav id="nav"><a href="#/board" data-p="board">상황판</a><a href="#/caps" data-p="caps">캡슐 관리</a><a href="#/machine" data-p="machine">호기별 정보</a><a href="#/data" data-p="data">측정 데이터</a><a href="#/settings" data-p="settings" id="navset">프로그램 설정</a></nav>
+<a href="#/caps" id="lk" class="lk"></a>
+<button class="btn bo" id="lotBtn">＋ LOT 등록 · 대기</button>
+<button id="add" class="btn bo">＋ 정반 추가</button>
+<div class="sum bo" id="sum"></div></header>
+<section class="page" id="pg-board"><div class="alerts" id="AL"></div>
+<div class="tables" id="T"></div></section>
+<section class="page" id="pg-caps"></section><section class="page" id="pg-machine"></section><section class="page" id="pg-data"></section><section class="page" id="pg-settings"></section>
+
+<aside class="drawer" id="drw">
+<div class="dh"><h2>LOT 등록 · 대기</h2><button class="x" id="dx">×</button></div>
+<form id="f">
+<label style="grid-column:1/-1">LOT 번호<input id="fl" placeholder="RWPX-12345-26001" autocomplete="off"></label>
+<label>최종 스펙<select id="fs"></select></label>
+<label>시작 공정<select id="fg"></select></label>
+<label>가공 횟수<input id="fn" type="number" value="6" min="1" max="10"></label>
+<label>&nbsp;<button class="btn">등록</button></label>
+<div class="err" id="fe"></div></form>
+<div class="sec">대기 LOT <span style="font-weight:400">— 호기 칸으로 끌어 놓거나 호기를 골라 배치</span></div>
+<div id="Q"></div>
+<button class="btn" id="rb" style="width:100%;margin-top:6px">⚡ 대기 LOT 배치 추천</button>
+<div class="recbox" id="R"></div>
+<div class="sec">완료 LOT</div><div id="DONE" style="font-size:13px;color:var(--mut)"></div>
+</aside>
+
+<div class="modal" id="md"><div class="mb" id="mdb"></div></div>
+
+<script>
+// ===== 기준 정보 (예시 값 — 실제 값으로 교체) =====
+// 공정별 [목표 RMS, 기준 주파수 Hz, 1회 가공 시간(분)], 공진 위험 구간 Hz
+const SPEC={
+"90-30":{fin:"N30",st:{R:[50,79.8,40],N90:[48,80.5,40],N60:[50,81.1,40],N30:[46,81.5,40]},avoid:[[172,190]]},
+"67-30":{fin:"N45",st:{R:[56,78.4,45],N90:[45,80.2,45],N45:[44,81,45]},avoid:[[128,142]]},
+"69-30":{fin:"N60",st:{R:[53,77,45],N90:[49,80,45],N60:[49,80.9,45]},avoid:[[132,146]]},
+"58-25":{fin:"N45",st:{R:[37,92.8,35],N90:[36,83.3,35],N45:[36,84,35]},avoid:[[160,176]]},
+"50-30":{fin:"N60",st:{R:[33,81,50],N90:[32,82,50],N60:[32,85.4,50]},avoid:[[86,131]]},
+"48-20":{fin:"N45",st:{R:[42,84,30],N90:[40,85,30],N45:[40,86,30]},avoid:[[183,248]]},
+"39-20":{fin:"N45",st:{R:[41,79.1,30],N90:[40,80,30],N45:[40,81,30]},avoid:[[149,201]]},
+"28-20":{fin:"N60",st:{R:[39,84.6,30],N90:[38,85,30],N60:[38,86,30]},avoid:[[121,133]]},
+"23-10":{name:"FR",fin:"N30",st:{R:[41,88,25],N90:[40,88,25],N60:[40,88,25],N30:[40,88,25]},avoid:[[351,475]]}};
+const BEAT=3; // 같은 정반 주파수 차 이 값 미만이면 울림 경고
+const SN=sp=>`${sp}(${SPEC[sp].name||SPEC[sp].fin})`;
+const stagesOf=s=>Object.keys(SPEC[s].st);
+const KEY="hg_board_v4";
+let S;
+function demo(){const now=Date.now();const s={tables:[["정반 1",[1,2]],["정반 2",[3,4,5]],["정반 3",[6,7]],["정반 4",[8,9]],["정반 5",[10,11,12]],["정반 6",[13,14,15]],["정반 7",[16,17]]],mach:{},lots:{},queue:[],done:[]};
+ [[1,"90-30","N60",4,6,50.3,81.1],[2,"67-30","R",2,6,55.8,78.4],[3],[4,"69-30","R",5,6,52.1,77],[5,"50-30","R",3,6,33,82,"2배 진동 11% · 체결 확인"],[6,"90-30","R",1,6,49.6,79.8],[7,"67-30","N90",2,4,44.2,80.2],[8,"58-25","R",3,6,30.1,70.1],[9,"28-20","R",4,6,38.5,84.6],[10,"39-20","R",2,6,41,79.1],[11,"50-30","N60",1,4,31.2,85.4],[12,"23-10","R",5,6,40.7,88],[13,"67-30","R",3,6,56.3,76.5],[14,"69-30","N60",2,4,48.9,80.9],[15,"58-25","R",4,6,37.2,92.8],[16,"58-25","N90",1,4,35.6,83.3],[17,"50-30","R",2,6,32.4,81]]
+ .forEach(([n,sp,stg,done,tot,rms,hz,memo])=>{
+  if(!sp){s.mach[n]={lot:null,run:false,since:now-37*60000};return}
+  const id=`RWPX-${12340+n}-26${String(n).padStart(3,"0")}`,per=SPEC[sp].st[stg][2],st0=now-(done*per+12)*60000;
+  s.lots[id]={id,spec:sp,stage:stg,done,tot,reg:st0-30*60000,hist:[{t:st0,txt:`${n}호기 배치 · ${stg} ${tot}회`}]};
+  const log=Array.from({length:10},(_,i)=>[st0+i*(now-st0)/9,+(rms+Math.sin(i*1.9)*1.2+(n==8?(9-i)*0.9:0)).toFixed(1)]);
+  s.mach[n]={lot:id,run:true,since:st0,rms,hz,memo:memo||"",log,x:[6,9,0,5,8,7,11,9,24,6,8,10,7,9,6,8,12,9][n],y:[5,7,0,6,9,8,6,7,13,5,6,8,9,6,7,5,8,7][n],h2:[3,2.5,3,0,4,11,2,5,4,3,4,6,2,3,4,3,4,3][n],cv:[1.8,2.1,0,1.5,2.4,1.9,2.2,4.1,1.6,2,2.6,1.4,1.8,2.3,1.7,2,2.1,1.9][n]}});
+ [["RWPX-12401-26101","50-30"],["RWPX-12402-26102","67-30"]].forEach(([id,sp])=>{s.lots[id]={id,spec:sp,stage:"R",done:0,tot:6,reg:now-10*60000,hist:[{t:now-10*60000,txt:"등록"}]};s.queue.push(id)});
+ return s}
+try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+function emptyState(){const s={tables:[["정반 1",[1,2]],["정반 2",[3,4,5]],["정반 3",[6,7]],["정반 4",[8,9]],["정반 5",[10,11,12]],["정반 6",[13,14,15]],["정반 7",[16,17]]],mach:{},lots:{},queue:[],done:[]};for(let n=1;n<=17;n++)s.mach[n]={lot:null,run:false,since:Date.now()};return s}
+if(!S||!S.mach)S=(window.hg||window.REMOTE)?emptyState():demo();
+let PUSHT=0,PUSHQ=null;
+function save(){if(window.REMOTE)return;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+ if(window.hg){clearTimeout(PUSHQ);const go=()=>{PUSHT=Date.now();try{hg.pushState(JSON.stringify(S))}catch(e){}};if(Date.now()-PUSHT>1000)go();else PUSHQ=setTimeout(go,1000)}}
+let EDIT=false,DRAG=null,DRAGLOT=null,OPEN=null;
+const $=id=>document.getElementById(id);
+const fmt=ms=>{const d=new Date(ms);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")};
+const mins=ms=>Math.max(0,Math.round(ms/60000));
+const hzOf=n=>{const m=S.mach[n];return m&&m.lot&&m.run?m.hz:0};
+const tableOf=n=>S.tables.findIndex(t=>t[1].includes(n));
+const etaOf=n=>{const m=S.mach[n];if(!m.lot)return Date.now();const L=S.lots[m.lot];return m.since+L.tot*SPEC[L.spec].st[L.stage][2]*60000};
+function beat(u){const f=u.map(n=>[n,hzOf(n)]).filter(x=>x[1]>0);const r=[];for(let i=0;i<f.length;i++)for(let j=i+1;j<f.length;j++){const d=Math.abs(f[i][1]-f[j][1]);if(d<BEAT)r.push([d,f[i][0],f[j][0]])}return r.sort((a,b)=>a[0]-b[0])}
+function inAvoid(sp,hz,m=0){return SPEC[sp].avoid.some(([a,b])=>hz>=a-m&&hz<=b+m)}
+// 호기 상태 판정
+function status(n){const m=S.mach[n],ss=typeof sensorState=="function"?sensorState(n):{st:"none"};if(!m.lot)return["off",ss.st=="ok"&&m.run?"LOT 없음 · 진동 감지":"LOT 없음"];
+ if(ss.st=="lost")return["warn","센서 신호 끊김"];if(ss.st=="chg")return["warn","센서 충전 중"];
+ if(ss.c&&ss.c.bat!=null&&ss.c.bat<(window.APPCFG_BAT||20))return["warn",`센서 배터리 ${Math.round(ss.c.bat)}%`];
+if(!m.run)return["off","정지 "+mins(Date.now()-m.since)+"분"];
+ const L=S.lots[m.lot],st=SPEC[L.spec].st[L.stage];
+ if(m.rms<st[0]-3)return["bad","RMS 목표 미달"];if(m.rms>st[0]+3)return["bad","RMS 목표 초과"];
+ if(inAvoid(L.spec,m.hz))return["bad","공진 위험 구간"];if(inAvoid(L.spec,m.hz,2))return["warn","공진 구간 근접"];
+ const b=beat(S.tables[tableOf(n)]?.[1]||[]).find(x=>x[1]==n||x[2]==n);if(b)return["warn",`울림 ${b[1]}·${b[2]}호기 (${(1/b[0]).toFixed(1)}초)`];
+ if(m.x!=null&&Math.max(m.x,m.y)>20)return["warn",`옆 흔들림 ${Math.max(m.x,m.y)}%`];if(m.h2!=null&&m.h2>10)return["warn",`2배 진동 ${m.h2}%`];
+ if(m.memo)return["warn",m.memo];
+ if(L.tot-L.done<=1)return["","마지막 1회"];return["","정상"]}
+function fit(id,n){const L=S.lots[id],hz=SPEC[L.spec].st[L.stage][1],ti=tableOf(n);let md=99,who=null;
+ if(ti>=0)S.tables[ti][1].forEach(o=>{if(o==n)return;const h=hzOf(o);if(!h)return;const d=Math.abs(h-hz);if(d<md){md=d;who=o}});
+ const lv=inAvoid(L.spec,hz)||md<BEAT?"r":md<5||inAvoid(L.spec,hz,2)?"y":"g";return{lv,md,who}}
+function tile(n){const m=S.mach[n],[cls,msg]=status(n);
+ if(!m.lot)return `<div class="t off empty" data-n="${n}" ><div class="top"><span class="n">${n}호기</span><span class="st stop">■ 정지</span></div><div class="sp">비어 있음</div><div class="v">정지 ${mins(Date.now()-m.since)}분째</div>${senLine(n)}<div class="m">LOT 배치 대기</div></div>`;
+ const L=S.lots[m.lot],sp=SPEC[L.spec],st=sp.st[L.stage];
+ const ch=stagesOf(L.spec).map(x=>x==L.stage?`<b>${x}</b>`:x).join(" → ");
+ return `<div class="t ${cls}" data-n="${n}" ><div class="top"><span class="n">${n}호기</span><span class="st ${m.run?"":"stop"}">${m.run?"● 가동":"■ 정지"}</span></div>
+ <div class="sp">${SN(L.spec)}</div><div class="lot">${L.id}</div>
+ <div class="stg"><span class="cur">${L.stage}</span><span class="ch">${ch}</span></div>
+ <div class="cells">${Array.from({length:L.tot},(_,i)=>`<i class="${i<L.done?"f":""}"></i>`).join("")}<span>${L.done}/${L.tot}</span></div>
+ <div class="v">RMS <b>${m.rms.toFixed(1)}</b> / ${st[0]-3}~${st[0]+3} · ${m.hz} Hz</div>${senLine(n)}<div class="m">${msg}</div></div>`}
+function senLine(n){if(typeof sensorState!="function")return"";const s=sensorState(n);if(s.st=="none")return'<div class="sn">센서 없음 · 수동 입력</div>';
+ return `<div class="sn">${s.st=="ok"?"📡":s.st=="chg"?"🔌":"⚠"} ${s.id} · ${batHtml(s.c.bat)} · ${s.c.last?ago(s.c.last):"수신 없음"}</div>`}
+function render(){
+ const all=Object.keys(S.mach).map(Number),st=all.map(status),run=all.filter(n=>S.mach[n].lot&&S.mach[n].run);
+  $("sum").innerHTML=`<div class="pill">● 가동<b>${run.length}</b></div><div class="pill">■ 정지<b>${all.length-run.length}</b></div><div class="pill">🟡<b>${st.filter(s=>s[0]=="warn").length}</b></div><div class="pill">🔴<b>${st.filter(s=>s[0]=="bad").length}</b></div>`;
+ $("T").innerHTML=S.tables.map(([g,u],gi)=>{const k=Math.max(1,Math.min(u.length,6)),b=beat(u);
+  return `<div class="tb" data-g="${gi}" style="grid-column:span ${k}"><div class="tbh"><span class="nm">${g}</span>${b.length?`<span class="beat">울림 ${b[0][1]}·${b[0][2]}${b.length>1?` 외 ${b.length-1}쌍`:""}</span>`:"<span>울림 없음</span>"}</div><div class="tiles" style="grid-template-columns:repeat(${k},1fr)">${u.map(tile).join("")}</div></div>`}).join("");
+ const al=[];all.forEach((n,i)=>{const [c,msg]=st[i];if(c=="bad")al.push(`🔴 ${n}호기 ${msg}`);else if(c=="warn"&&!msg.startsWith("울림"))al.push(`🟡 ${n}호기 ${msg}`);else if(msg=="마지막 1회")al.push(`🔵 ${n}호기 마지막 1회`)});
+ S.tables.forEach(([g,u])=>beat(u).forEach(b=>al.push(`🟡 ${g} 울림 ${b[1]}·${b[2]}호기 Δ${b[0].toFixed(1)} Hz`)));
+ all.forEach(n=>{const m=S.mach[n];if(!m.run&&Date.now()-m.since>30*60000)al.push(`⚫ ${n}호기 ${mins(Date.now()-m.since)}분째 정지`)});
+ $("AL").innerHTML='<button class="btn red" id="ackb" onclick="ackAlarm()" style="display:none;padding:3px 12px">🔕 확인</button>'+(al.length?al.map(a=>`<span>${a}</span>`).join(""):'<span>🟢 이상 없음</span>');alertWatch(al);
+ $("lotBtn").textContent=`＋ LOT 등록 · 대기 (${S.queue.length})`;
+ drawer();bind();save()}
+function drawer(){
+ $("Q").innerHTML=S.queue.length?S.queue.map(id=>{const L=S.lots[id],emp=Object.keys(S.mach).filter(n=>!S.mach[n].lot);
+  return `<div class="qi" draggable="true" data-lot="${id}"><div class="r1"><b>${SN(L.spec)}</b><span class="lot">${id}</span></div>
+  <div class="r2">${L.stage} · ${L.tot}회${L.plan?` · <span style="color:var(--acc)">예약 ${L.plan}호기</span>`:""}
+  <select data-sel="${id}"><option value="">호기 선택</option>${emp.map(n=>{const f=fit(id,+n);return `<option value="${n}">${n}호기 ${f.lv=="g"?"🟢":f.lv=="y"?"🟡":"🔴"}</option>`}).join("")}</select>
+  <button class="btn" data-go="${id}">배치</button><button class="btn red" data-del="${id}">삭제</button></div></div>`}).join(""):'<div style="color:var(--mut);font-size:13px">대기 LOT 없음</div>';
+ $("DONE").innerHTML=S.done.length?S.done.slice(-8).reverse().map(id=>{const L=S.lots[id];return `<div style="padding:4px 0;border-bottom:1px solid var(--line)">${SN(L.spec)} · <span class="lot" style="display:inline">${id}</span> <a href="#" data-hist="${id}" style="color:var(--acc)">이력</a></div>`}).join(""):"없음"}
+function bind(){
+ if(REMOTE){document.querySelectorAll(".t").forEach(t=>{t.ondblclick=()=>openM(+t.dataset.n)});return}
+ document.querySelectorAll(".t").forEach(t=>{const n=+t.dataset.n;
+  t.onclick=()=>{if(SUPPRESS){SUPPRESS=false;return}clearTimeout(CT);CT=setTimeout(()=>passUp(n),260)};
+  t.ondblclick=()=>{clearTimeout(CT);openM(n)};
+  t.onpointerdown=e=>{if(e.button)return;const x0=e.clientX,y0=e.clientY;LP=setTimeout(()=>startMove(t,n,e),550);
+   const cancel=ev=>{if(Math.hypot(ev.clientX-x0,ev.clientY-y0)>8)clearTimeout(LP)};t.addEventListener("pointermove",cancel);
+   t.addEventListener("pointerup",()=>{clearTimeout(LP);t.removeEventListener("pointermove",cancel)},{once:true})};
+  t.ondragover=e=>{if(DRAGLOT&&!S.mach[n].lot)e.preventDefault()};
+  t.ondrop=e=>{e.preventDefault();if(DRAGLOT&&!S.mach[n].lot)assign(DRAGLOT,n);DRAGLOT=null}});
+ document.querySelectorAll(".qi").forEach(q=>{const id=q.dataset.lot;q.ondragstart=()=>{DRAGLOT=id;showFit(id)};q.ondragend=clearFit;q.onmouseenter=()=>showFit(id);q.onmouseleave=clearFit});
+ document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{const v=document.querySelector(`[data-sel="${b.dataset.go}"]`).value;if(v)assign(b.dataset.go,+v)});
+ document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{const id=b.dataset.del;S.queue=S.queue.filter(x=>x!=id);delete S.lots[id];render()});
+ document.querySelectorAll("[data-hist]").forEach(a=>a.onclick=e=>{e.preventDefault();openHist(a.dataset.hist)})}
+function showFit(id){clearFit();Object.keys(S.mach).forEach(n=>{if(S.mach[n].lot)return;const f=fit(id,+n),t=document.querySelector(`.t[data-n="${n}"]`);if(!t)return;t.classList.add("fit-"+f.lv);
+ t.insertAdjacentHTML("beforeend",`<span class="fitlab" style="color:var(--${f.lv=="g"?"ok":f.lv=="y"?"warn":"bad"})">${f.lv=="g"?"적합":f.lv=="y"?"주의":"부적합"}${f.who?` · ${f.who}호기와 Δ${f.md.toFixed(1)}Hz`:""}</span>`)})}
+function clearFit(){document.querySelectorAll(".t").forEach(t=>{t.classList.remove("fit-g","fit-y","fit-r");t.querySelector(".fitlab")?.remove()})}
+function move(gi,before){if(DRAG==null||DRAG===before){DRAG=null;render();return}S.tables.forEach(g=>g[1]=g[1].filter(x=>x!==DRAG));const a=S.tables[gi][1],k=before==null?a.length:a.indexOf(before);a.splice(k<0?a.length:k,0,DRAG);DRAG=null;render()}
+let CT=null,LP=null,SUPPRESS=false;
+function passUp(n){if(REMOTE)return;const m=S.mach[n];if(!m.lot)return;const L=S.lots[m.lot];if(L.done>=L.tot)return;L.done++;hist(L,`${n}호기 ${L.stage} ${L.done}/${L.tot}회 완료 · RMS ${m.rms}`);render()}
+function startMove(t,n,e){SUPPRESS=true;DRAG=n;const r=t.getBoundingClientRect(),g=t.cloneNode(true);g.classList.add("ghost");g.style.width=r.width+"px";g.style.height=r.height+"px";document.body.appendChild(g);t.classList.add("drag-src");
+ const ox=e.clientX-r.left,oy=e.clientY-r.top;let tgt=null;
+ const mv=ev=>{g.style.left=ev.clientX-ox+"px";g.style.top=ev.clientY-oy+"px";document.querySelectorAll(".tgt").forEach(x=>x.classList.remove("tgt"));
+  const el=document.elementFromPoint(ev.clientX,ev.clientY);tgt=el&&el.closest(".t:not(.drag-src)");if(tgt)tgt.classList.add("tgt")};
+ mv(e);document.addEventListener("pointermove",mv);
+ document.addEventListener("pointerup",()=>{document.removeEventListener("pointermove",mv);g.remove();
+  if(tgt)swapLot(n,+tgt.dataset.n);DRAG=null;render();
+  setTimeout(()=>SUPPRESS=false,50)},{once:true})}
+function swapLot(a,b){const A=S.mach[a],B=S.mach[b];if(!A.lot&&!B.lot)return;const now=Date.now();
+ const take=m=>({lot:m.lot,run:m.run,rms:m.rms,hz:m.hz,memo:m.memo,log:m.log});const ta=take(A),tb=take(B);
+ const put=(m,t,n)=>{Object.assign(m,t,{since:now});if(!t.lot){m.run=false;m.log=[]}else{const L=S.lots[t.lot],st=SPEC[L.spec].st[L.stage];m.rms=st[0];m.hz=st[1];m.log=[];hist(L,`${n}호기로 이동`)}};
+ put(A,tb,a);put(B,ta,b)}
+function hist(L,txt){L.hist.push({t:Date.now(),txt})}
+function assign(id,n){const L=S.lots[id],st=SPEC[L.spec].st[L.stage];S.queue=S.queue.filter(x=>x!=id);delete L.plan;
+ S.mach[n]={lot:id,run:true,since:Date.now(),rms:st[0],hz:st[1],memo:"",log:[]};hist(L,`${n}호기 배치 · ${L.stage} ${L.tot}회 · ${st[1]} Hz`);$("R").style.display="none";render()}
+function recommend(){const R=$("R");R.style.display="block";
+ const e=Object.keys(S.mach).map(Number).filter(n=>!S.mach[n].lot||etaOf(n)-Date.now()<60*60000);
+ if(!S.queue.length){R.innerHTML="대기 LOT이 없습니다";return}
+ const out=S.queue.map(id=>{let b=null;e.forEach(n=>{const f=fit(id,n),sc=(f.lv=="g"?100:f.lv=="y"?50:0)+Math.min(f.md,20)-(S.mach[n].lot?(etaOf(n)-Date.now())/600000:0);if(!b||sc>b.sc)b={...f,n,sc}});if(b)e.splice(e.indexOf(b.n),1);return[id,b]});
+ R.innerHTML=out.map(([id,b])=>{const L=S.lots[id];return b?`<div>${SN(L.spec)} <b>${id.slice(-5)}</b> → <b>${b.n}호기</b> ${S.mach[b.n].lot?`<span style="color:var(--mut)">현재 LOT 완료 후</span>`:'<span style="color:var(--ok)">지금</span>'} · ${S.tables[tableOf(b.n)]?.[0]||""}${b.who?` · ${b.who}호기와 Δ${b.md.toFixed(1)} Hz`:""} ${b.lv=="g"?"🟢":b.lv=="y"?"🟡":"🔴"}</div>`:`<div>${id} → 1시간 안에 빌 호기 없음</div>`}).join("")+'<button class="btn" id="ap" style="margin-top:6px">추천대로 배치 · 예약</button>';
+ $("ap").onclick=()=>{out.forEach(([id,b])=>{if(!b)return;if(!S.mach[b.n].lot)assign(id,b.n);else S.lots[id].plan=b.n});R.style.display="none";render()}}
+// ===== 세부 창 (더블클릭) =====
+function chart(m,st){const lg=m.log||[];if(lg.length<2)return '<div style="color:var(--mut);font-size:13px;padding:30px 0">측정 기록이 2개 이상이면 그래프가 나옵니다</div>';
+ const W=520,H=150,t0=lg[0][0],t1=lg[lg.length-1][0]||t0+1,lo=Math.min(st[0]-8,...lg.map(x=>x[1])),hi=Math.max(st[0]+8,...lg.map(x=>x[1]));
+ const X=t=>40+(t-t0)/(t1-t0||1)*(W-50),Y=v=>H-20-(v-lo)/(hi-lo)*(H-30);
+ return `<svg width="100%" viewBox="0 0 ${W} ${H}"><rect x="40" y="${Y(st[0]+3)}" width="${W-50}" height="${Y(st[0]-3)-Y(st[0]+3)}" fill="#1f9d63" opacity=".14"/>
+ <text x="4" y="${Y(st[0]+3)+4}" fill="#6b7785" font-size="11">${st[0]+3}</text><text x="4" y="${Y(st[0]-3)+4}" fill="#6b7785" font-size="11">${st[0]-3}</text>
+ <polyline fill="none" stroke="#2f6fe4" stroke-width="2" points="${lg.map(p=>X(p[0])+","+Y(p[1])).join(" ")}"/>${lg.map(p=>`<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3" fill="#2f6fe4"/>`).join("")}
+ </svg>`}
+function histTable(L){return `<table class="hist"><tr><th>최근 순</th></tr>${L.hist.slice().reverse().map(h=>`<tr><td>${h.txt}</td></tr>`).join("")}</table>`}
+function openHist(id){const L=S.lots[id];$("mdb").innerHTML=`<div class="dh"><h2>${SN(L.spec)} · <span class="lot" style="display:inline;font-size:18px">${id}</span></h2><button class="x" onclick="closeM()">×</button></div>${histTable(L)}`;$("md").classList.add("open")}
+function bar(v,lo,hi,zones,marks){const P=x=>Math.max(0,Math.min(100,(x-lo)/(hi-lo)*100));
+ return `<div class="hb"><div class="tr">${zones.map(([a,b,c])=>`<i style="left:${P(a)}%;width:${Math.max(.8,P(b)-P(a))}%;background:${c}"></i>`).join("")}</div>
+ ${(marks||[]).map(([x,l])=>`<u style="left:${P(x)}%"><span>${l}</span></u>`).join("")}${v==null?"":`<b style="left:${P(v)}%"></b>`}
+ <div class="sc"><span>${+lo.toFixed(0)}</span><span>${+hi.toFixed(0)}</span></div></div>`}
+const G="#cdeedd",Y="#fbe7b8",R="#f8cfcc";
+function lv(c){return c=="bad"?"var(--bad)":c=="warn"?"var(--warn)":"var(--ok)"}
+function metric(t,val,unit,cap,svg,c){return `<div class="mc"><div class="mt">${t}</div><div class="mv" style="color:${c||"var(--tx)"}">${val}<small>${unit}</small></div>${svg||""}<div class="cap">${cap}</div></div>`}
+function detailInto(n){OPEN=n;const BOX=$("mdx");const m=S.mach[n];const tsel=`<select id="c_tb">${S.tables.map((t,i)=>`<option value="${i}" ${t[1].includes(n)?"selected":""}>${t[0]}</option>`).join("")}</select>`;
+ const head=(t,chip)=>`<div class="dh"><h2>${t}</h2>${chip||""}<a class="btn" href="#/data" onclick="DF.n='${n}'">측정 데이터 →</a></div>`;
+ const tbBox=`<div class="box"><h4>정반 변경</h4><div class="row"><label>${tsel}</label><button class="btn" id="c_tbs">변경</button></div></div>`;
+ const bindTb=()=>{$("c_tbs").onclick=()=>{const gi=+$("c_tb").value;S.tables.forEach(g=>g[1]=g[1].filter(x=>x!==n));S.tables[gi][1].push(n);save();renderMachine()}};
+ if(!m.lot){BOX.innerHTML=head(`${n}호기 · 비어 있음`)+`<div class="mgrid"><div style="color:var(--mut)">정지 ${mins(Date.now()-m.since)}분째. LOT 등록 창에서 대기 LOT을 이 호기로 배치하세요.</div><div class="ctl">${tbBox}</div></div>`;bindTb();return}
+ const L=S.lots[m.lot],sp=SPEC[L.spec],st=sp.st[L.stage],sts=stagesOf(L.spec),nx=sts[sts.indexOf(L.stage)+1],[cls,msg]=status(n);
+ const v=m.rms,f=m.hz,w=2*Math.PI*f,a=v*w/1000,g=a/9.81,d=2*Math.SQRT2*v/w*1000,vpk=v*Math.SQRT2/10;
+ const x=m.x,y=m.y,h2=m.h2,cv=m.cv,side=x==null?null:Math.hypot(x,y);
+ const tg=st[0],vc=v<tg-3||v>tg+3?"bad":"";
+ const nb=S.tables[tableOf(n)][1].filter(o=>o!=n&&hzOf(o)).map(o=>[hzOf(o),o+"호기"]);
+ const flo=Math.min(60,f-10),fhi=Math.max(f+20,Math.min(sp.avoid[0][0]+20,260)),av=sp.avoid.map(([p,q])=>[p,q,R]).concat(sp.avoid.map(([p])=>[p-2,p,Y]));
+ const fc=inAvoid(L.spec,f)?"bad":inAvoid(L.spec,f,2)?"warn":"";
+ const sc=c=>c==null?"":c>20?"bad":c>10?"warn":"",hc=h2==null?"":h2>10?"bad":h2>5?"warn":"",cc=cv==null?"":cv>3?"warn":"";
+ const xyz=x==null?'<div class="cap">방향 데이터 없음 — 측정값 기록에서 X/Z·Y/Z를 넣으세요</div>':`<div class="xyz"><svg viewBox="0 0 120 110" width="120"><g stroke-linecap="round" stroke-width="6">
+  <line x1="60" y1="90" x2="60" y2="${90-80}" stroke="#2f6fe4"/><line x1="60" y1="90" x2="${60+Math.max(4,x/100*80)}" y2="90" stroke="${lv(sc(x))}"/><line x1="60" y1="90" x2="${60-Math.max(3,y/100*56)}" y2="${90+Math.max(3,y/100*56)*.35}" stroke="${lv(sc(y))}"/></g>
+  <text x="66" y="16" font-size="12" font-weight="700" fill="#2f6fe4">Z 위아래</text><text x="${Math.min(84,62+x/100*80)}" y="84" font-size="11" fill="#1b2430">X</text><text x="${Math.max(0,50-y/100*56)}" y="${108}" font-size="11" fill="#1b2430">Y</text></svg>
+  <div class="xyzb">${[["Z 위아래",100,""],["X 좌우",x,sc(x)],["Y 앞뒤",y,sc(y)]].map(([l,p,c])=>`<div class="xr"><span>${l}</span><div class="xt"><i style="width:${Math.min(100,p)}%;background:${l[0]=="Z"?"var(--acc)":lv(c)}"></i><em style="left:20%"></em></div><b style="color:${l[0]=="Z"?"var(--tx)":lv(c)}">${p.toFixed(0)}%</b></div>`).join("")}</div></div>
+  <div class="cap">Z(위아래)가 가공하는 진동. X·Y는 옆 흔들림 — <b>20%</b>(점선) 넘으면 지그 체결·센서 접촉 확인</div>`;
+ BOX.innerHTML=head(`${n}호기 · ${SN(L.spec)} <span class="lot" style="display:inline;font-size:18px">${L.id}</span>`,`<span class="chip" style="background:${cls=="bad"?"#fde3e1":cls=="warn"?"#fdf0d3":"#dff4e9"};color:${lv(cls)}">${msg}</span>`)+`
+ <div class="mgrid2"><div>
+ <div class="pstep">${sts.map(s=>`<span class="${s==L.stage?"on":sts.indexOf(s)<sts.indexOf(L.stage)?"dn":""}">${s}</span>`).join('<i>›</i>')}<div class="cells" style="flex:1;margin:0 0 0 16px">${Array.from({length:L.tot},(_,i)=>`<i class="${i<L.done?"f":""}"></i>`).join("")}<span>${L.done}/${L.tot}</span></div></div>
+ <div class="sec">지금 진동 <span style="font-weight:400">${(()=>{const q=sensorState(n);return q.st=="none"?"· 센서 없음 (수동 입력값)":`· ${q.id} · ${q.st=="ok"?"실시간":q.st=="chg"?"충전 중":"신호 끊김"} · 최근 ${S.cfg.avgN}회 평균 · ${q.c.last?ago(q.c.last):""}`})()}</span></div>
+ <div class="g4">
+ ${metric("진동 속도 RMS",v.toFixed(1)," mm/s",`가공 세기 · 목표 <b>${tg-3}~${tg+3}</b> · 피크 ${vpk.toFixed(2)} cm/s`,bar(v,0,Math.max(tg*1.6,v+5),[[tg-3,tg+3,G]],[]),lv(vc))}
+ ${metric("주파수",f.toFixed(1)," Hz",`1초에 흔들리는 횟수 · 빨강 = 핀 공진 위험 ${sp.avoid.map(([p,q])=>p+"~"+q).join(", ")} Hz`,bar(f,flo,fhi,av,nb),lv(fc))}
+ ${metric("가속도 RMS",a.toFixed(1)," m/s²",`진동의 힘 · 중력의 <b>${g.toFixed(2)}배</b> (${g.toFixed(2)} g)`,bar(g,0,6,[]))}
+ ${metric("변위 (흔들림 폭)",d.toFixed(0)," µm",`판이 위아래로 움직이는 거리 (피크-피크) · ${(d/1000).toFixed(3)} mm`,bar(d,0,400,[]))}
+ </div>
+ <div class="sec">흔들림 방향 · 품질</div>
+ <div class="g3">
+ <div class="mc"><div class="mt">X · Y · Z 방향 <span style="font-weight:400">${side==null?"":`· 옆 흔들림 합 ${side.toFixed(0)}%`}${m.rk?` · 기울기 흔들림 ±${Math.max(m.rk.ax,m.rk.ay).toFixed(3)}° (100mm당 ±${m.rk.dh.toFixed(0)}µm, 위아래의 ${m.rk.pct.toFixed(0)}%${m.rk.pct>30?" ⚠":""})`:""}</span></div>${xyz}</div>
+ ${metric("2배 진동",h2==null?"—":h2.toFixed(0)," %",`주파수의 2배로 떨리는 성분 · <b>5%</b> 이하 정상 · 10% 넘으면 볼트·체결 확인`,h2==null?"":bar(h2,0,25,[[0,5,G],[5,10,Y],[10,25,R]]),lv(hc))}
+ ${metric("측정 안정도 (흔들림 변동)",cv==null?"—":cv.toFixed(1)," %",`측정 중 RMS가 변한 정도 · <b>3%</b> 이하면 믿을 만한 값`,cv==null?"":bar(cv,0,10,[[0,3,G],[3,6,Y],[6,10,R]]),lv(cc))}
+ </div>
+ <div class="g2"><div><div class="sec">RMS 추이</div>${chart(m,st)}</div><div><div class="sec">LOT 이력</div><div class="hwrap">${histTable(L)}</div></div></div>
+ </div>
+ <div class="ctl">
+ <div class="box"><h4>가동</h4><div class="row"><button class="btn ${m.run?"red":"grn"}" id="c_run">${m.run?"■ 정지":"● 가동 시작"}</button><button class="btn" id="c_pass">회차 +1</button><button class="btn" id="c_pass_m">−1</button></div></div>
+ <div class="box"><h4>측정값 기록</h4><div class="rg"><label>속도 RMS mm/s<input id="c_rms" type="number" step="0.1" value="${v}"></label><label>주파수 Hz<input id="c_hz" type="number" step="0.1" value="${f}"></label>
+ <label>X/Z %<input id="c_x" type="number" step="1" value="${x??""}"></label><label>Y/Z %<input id="c_y" type="number" step="1" value="${y??""}"></label><label>2배 진동 %<input id="c_h2" type="number" step="0.1" value="${h2??""}"></label><label>안정도 %<input id="c_cv" type="number" step="0.1" value="${cv??""}"></label></div>
+ <button class="btn" id="c_rec" style="width:100%;margin-top:8px">기록</button><div class="cap" style="margin-top:6px">가속도·변위·피크는 RMS와 주파수로 자동 계산</div></div>
+ <div class="box"><h4>공정 · LOT</h4><div class="row">${nx?`<label>다음 공정 ${nx} 횟수<input id="c_ntot" type="number" value="${L.tot}" min="1" max="10"></label><button class="btn" id="c_next">${nx}로 넘기기</button>`:`<button class="btn grn" id="c_fin">LOT 가공 완료</button>`}</div>
+ <div class="row" style="margin-top:8px"><label>전체 횟수<input id="c_tot" type="number" value="${L.tot}" min="1" max="10"></label><button class="btn" id="c_tots">변경</button></div>
+ <button class="btn" id="c_out" style="width:100%;margin-top:8px">LOT 꺼내서 대기로</button></div>
+ ${tbBox}
+ <div class="box"><h4>메모 (주의 표시)</h4><div class="row"><label><input id="c_memo" value="${m.memo||""}" placeholder="예: 볼트 확인 필요"></label><button class="btn" id="c_ms">저장</button></div></div>
+ </div></div>`;
+ bindTb();
+ const re=()=>{save();renderMachine()},num=id=>{const t=$(id).value;return t===""?null:+t};
+ $("c_run").onclick=()=>{m.run=!m.run;m.since=Date.now();hist(L,`${n}호기 ${m.run?"가동":"정지"}`);re()};
+ $("c_pass").onclick=()=>{if(L.done<L.tot){L.done++;hist(L,`${n}호기 ${L.stage} ${L.done}/${L.tot}회 완료 · RMS ${m.rms}`)}re()};
+ $("c_pass_m").onclick=()=>{if(L.done>0){L.done--;hist(L,`회차 정정 → ${L.done}/${L.tot}`)}re()};
+ $("c_rec").onclick=()=>{const r=num("c_rms"),h=num("c_hz");if(!r||!h)return;m.rms=r;m.hz=h;m.x=num("c_x");m.y=num("c_y");m.h2=num("c_h2");m.cv=num("c_cv");(m.log=m.log||[]).push([Date.now(),r]);
+  hist(L,`측정 RMS ${r} · ${h} Hz${m.x!=null?` · X ${m.x}% Y ${m.y}%`:""}${m.h2!=null?` · 2배 ${m.h2}%`:""}`);re()};
+ if(nx)$("c_next").onclick=()=>{const t=Math.min(10,+$("c_ntot").value||L.tot);hist(L,`${L.stage} 완료 → ${nx} ${t}회 시작`);L.stage=nx;L.done=0;L.tot=t;const s2=sp.st[nx];m.since=Date.now();m.log=[];m.rms=s2[0];m.hz=s2[1];re()};
+ else $("c_fin").onclick=()=>{hist(L,`${n}호기에서 가공 완료`);L.end=Date.now();S.done.push(L.id);S.mach[n]={lot:null,run:false,since:Date.now()};save();renderMachine()};
+ $("c_out").onclick=()=>{hist(L,`${n}호기에서 꺼냄 (${L.stage} ${L.done}/${L.tot})`);S.queue.push(L.id);S.mach[n]={lot:null,run:false,since:Date.now()};save();renderMachine()};
+ $("c_tots").onclick=()=>{const t=Math.min(10,+$("c_tot").value);if(t>0){L.tot=t;hist(L,`전체 횟수 → ${t}`)}re()};
+ $("c_ms").onclick=()=>{m.memo=$("c_memo").value.trim();re()}}
+
+function closeM(){$("md").classList.remove("open");OPEN=null}
+$("md").onclick=e=>{if(e.target.id=="md")closeM()};
+document.onkeydown=e=>{if(e.key=="Escape"){closeM();$("drw").classList.remove("open")}};
+// ===== LOT 등록 =====
+$("fs").innerHTML=Object.keys(SPEC).map(s=>`<option value="${s}">${SN(s)}</option>`).join("");
+const fillStage=()=>{$("fg").innerHTML=stagesOf($("fs").value).map(x=>`<option>${x}</option>`).join("")};$("fs").onchange=fillStage;fillStage();
+$("f").onsubmit=e=>{e.preventDefault();const id=$("fl").value.trim().toUpperCase();
+ if(!/^[A-Z]{4}-\d{5}-\d{5}$/.test(id)){$("fe").textContent="형식: RWPX-12345-26001";return}
+ if(S.lots[id]){$("fe").textContent="이미 등록된 LOT입니다";return}
+ S.lots[id]={id,spec:$("fs").value,stage:$("fg").value,done:0,tot:Math.min(10,+$("fn").value||6),reg:Date.now(),hist:[{t:Date.now(),txt:"등록"}]};S.queue.push(id);$("fl").value="";$("fe").textContent="";render()};
+$("lotBtn").onclick=()=>$("drw").classList.toggle("open");$("dx").onclick=()=>$("drw").classList.remove("open");
+$("rb").onclick=recommend;
+$("add").onclick=()=>{S.tables.push(["정반 "+(S.tables.length+1),[]]);render()};
+// ===== 센서: 진동 캡슐 ↔ 이 PC (블루투스 직접 연결, 원본 800Hz 수신 → PC에서 계산) =====
+// 캡슐 펌웨어 v1.1 · 서비스 4e8f0001-…  RAW(알림) 0xA1 가속도 묶음 / 0xB1 회전 요약, CTL "S1"/"S0"/"B", STA "bat=..;fs=.."
+const SVC="4e8f0001-6b2a-4c1e-9d3a-5a17c0de0001",C_RAW="4e8f0002-6b2a-4c1e-9d3a-5a17c0de0001",C_CTL="4e8f0003-6b2a-4c1e-9d3a-5a17c0de0001",C_STA="4e8f0004-6b2a-4c1e-9d3a-5a17c0de0001";
+S.caps=S.caps||{};S.cfg=Object.assign({meas:5,period:20,ui:5,avgN:3,runRms:5},S.cfg||{});
+const REMOTE=!!window.REMOTE, APP=!!window.hg;
+let BDEV=null,BCTL=null,SIM=null,LINK="off",LINKMSG="",APPCFG={};
+const capOf=n=>Object.keys(S.caps).find(k=>S.caps[k].n==n);
+const ago=t=>{const s=Math.round((Date.now()-t)/1000);return s<60?s+"초 전":s<3600?Math.round(s/60)+"분 전":Math.round(s/3600)+"시간 전"};
+function lostMs(){return Math.max(S.cfg.period*3000,(APPCFG.lostSec||60)*1000)}
+function sensorState(n){const id=capOf(n);if(!id)return{st:"none"};const c=S.caps[id];
+ if(c.chg)return{st:"chg",c,id};if(!c.last||Date.now()-c.last>lostMs())return{st:"lost",c,id};return{st:"ok",c,id}}
+// 측정 기록 (IndexedDB) + 프로그램이면 날짜별 CSV 파일
+let DB=null;const dbReady=new Promise(res=>{if(REMOTE)return res(null);try{const rq=indexedDB.open("hg_board_rec2",1);rq.onupgradeneeded=()=>{const st=rq.result.createObjectStore("rec",{keyPath:"t"});st.createIndex("n","n")};rq.onsuccess=()=>{DB=rq.result;res(DB)};rq.onerror=()=>res(null)}catch(e){res(null)}});
+function recAdd(r){try{DB&&DB.transaction("rec","readwrite").objectStore("rec").put(r)}catch(e){}if(APP)hg.saveRecord(r)}
+function recAll(){return dbReady.then(db=>new Promise(res=>{if(!db)return res([]);const q=db.transaction("rec").objectStore("rec").getAll();q.onsuccess=()=>res(q.result);q.onerror=()=>res([])}))}
+function recClear(){return dbReady.then(db=>db&&db.transaction("rec","readwrite").objectStore("rec").clear())}
+
+// ---- 계산 (진동지기 앱 Analyzer와 같은 방식) ----
+function fft(re,im){const n=re.length;for(let i=1,j=0;i<n;i++){let b=n>>1;for(;j&b;b>>=1)j^=b;j^=b;if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]]}}
+ for(let len=2;len<=n;len<<=1){const a=-2*Math.PI/len,wr=Math.cos(a),wi=Math.sin(a);for(let i=0;i<n;i+=len){let cr=1,ci=0;for(let k=0;k<len/2;k++){const p=i+k,q=p+len/2,xr=re[q]*cr-im[q]*ci,xi=re[q]*ci+im[q]*cr;re[q]=re[p]-xr;im[q]=im[p]-xi;re[p]+=xr;im[p]+=xi;const nr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=nr}}}}
+function std(a){let m=0;for(const v of a)m+=v;m/=a.length;let s=0;for(const v of a)s+=(v-m)**2;return Math.sqrt(s/a.length)}
+function analyze(x,y,z,fs){const n=z.length;if(n<64)return null;const rx=std(x),ry=std(y),rz=std(z);
+ let mean=0;for(const v of z)mean+=v;mean/=n;let N=1;while(N<4*n)N<<=1;if(N>32768)N=32768;const re=new Float64Array(N),im=new Float64Array(N),len=Math.min(n,N);
+ for(let i=0;i<len;i++)re[i]=(z[i]-mean)*(0.5-0.5*Math.cos(2*Math.PI*i/(len-1)));fft(re,im);
+ const df=fs/N,mag=new Float64Array(N/2);for(let k=1;k<N/2;k++)mag[k]=Math.hypot(re[k],im[k]);
+ const k0=Math.max(1,Math.ceil(20/df)),k1=Math.min(N/2-2,Math.floor(Math.min(250,fs/2-1)/df));let kb=-1,best=-1,sum=0,cnt=0;
+ for(let k=k0;k<=k1;k++){if(mag[k]>best){best=mag[k];kb=k}sum+=mag[k];cnt++}if(kb<1)return null;
+ const a=mag[kb-1],b=mag[kb],c=mag[kb+1],den=a-2*b+c;let p=den?0.5*(a-c)/den:0;p=Math.max(-.5,Math.min(.5,p));const f=(kb+p)*df;
+ const band=f0=>{let s=0;for(let k=Math.max(1,Math.ceil((f0-3)/df));k<=Math.min(mag.length-1,Math.floor((f0+3)/df));k++)s+=mag[k]*mag[k];return Math.sqrt(s)};
+ const h1=band(f),h2=band(2*f);
+ return{f,rz,v:159.155*rz/f,px:100*rx/rz,py:100*ry/rz,prom:cnt?best/(sum/cnt):0,h2:h1?100*h2/h1:0}}
+
+// ---- 원본 수신 버퍼 (캡슐마다) ----
+const RB={};
+function rbuf(id){return RB[id]||(RB[id]={cap:800*70,n:0,h:0,t:new Float64Array(800*70),x:new Float32Array(800*70),y:new Float32Array(800*70),z:new Float32Array(800*70),
+ g:[0,0,0],gc:0,zA:-1,xA:0,yA:1,last:-1,anI:-1,anT:0,anF:800,fs:NaN,gyro:null,gyroAt:0,next:0,pk:0,lost:0})}
+function axesReset(b){b.zA=-1;b.g=[0,0,0];b.gc=0;b.last=-1;b.anI=-1;b.n=0;b.h=0}
+function onRaw(id,dv){const b=rbuf(id),type=dv.getUint8(0);
+ if(type==0xB1&&dv.byteLength>=25){b.gyro=[dv.getFloat32(1,true),dv.getFloat32(5,true),dv.getFloat32(9,true)];b.gyroAt=Date.now();return}
+ if(type!=0xA1||dv.byteLength<10)return;const n=dv.getUint8(1),idx=dv.getUint32(2,true),f=dv.getFloat32(6,true);if(dv.byteLength<10+n*6)return;
+ if(f>100&&f<4000)b.fs=f;const rate=isNaN(b.fs)?800:b.fs;b.pk++;
+ if(b.last>=0&&idx<b.last)axesReset(b);if(b.last>=0&&idx>b.last)b.lost+=Math.round((idx-b.last)/n);b.last=idx+n;
+ if(b.anI<0){b.anI=idx;b.anT=0;b.anF=rate}else if(rate!=b.anF){b.anT+=(idx-b.anI)/b.anF;b.anI=idx;b.anF=rate}
+ const G=9.80665/4096;let o=10;
+ for(let i=0;i<n;i++){const r=[dv.getInt16(o,true)*G,dv.getInt16(o+2,true)*G,dv.getInt16(o+4,true)*G];o+=6;
+  if(b.zA<0){for(let k=0;k<3;k++)b.g[k]+=r[k];if(++b.gc>=400){let k=0;for(let j=1;j<3;j++)if(Math.abs(b.g[j])>Math.abs(b.g[k]))k=j;b.zA=k;b.xA=k==0?1:0;b.yA=k==2?1:2}}
+  const zi=b.zA<0?2:b.zA,xi=b.zA<0?0:b.xA,yi=b.zA<0?1:b.yA;
+  b.t[b.h]=b.anT+(idx+i-b.anI)/b.anF;b.x[b.h]=r[xi];b.y[b.h]=r[yi];b.z[b.h]=r[zi];b.h=(b.h+1)%b.cap;if(b.n<b.cap)b.n++}}
+// 측정 주기마다 최근 '측정 시간' 구간을 계산 → 기록
+function measureTick(){const now=Date.now();for(const id in RB){const b=RB[id];if(now<b.next||b.n<200)continue;b.next=now+S.cfg.period*1000;
+ const fs=isNaN(b.fs)?800:b.fs,want=Math.min(b.n,Math.round(S.cfg.meas*fs));if(want<fs*0.8)continue;
+ const x=new Float32Array(want),y=new Float32Array(want),z=new Float32Array(want);const s0=(b.h-want+b.cap)%b.cap;
+ for(let i=0;i<want;i++){const k=(s0+i)%b.cap;x[i]=b.x[k];y[i]=b.y[k];z[i]=b.z[k]}
+ const r=analyze(x,y,z,fs);const c=S.caps[id]||{};
+ if(!r||r.prom<4||r.rz<0.3){if(DUTY[id])DUTY[id].done=true;onData({id,rms:+(r?r.v:0).toFixed(1)*(r&&r.rz>=0.3?1:0),hz:0,bat:c.bat,ms:want/fs*1000});continue}
+ // 안정도: 1초 조각별 RMS 변동
+ const seg=Math.round(fs),vs=[];for(let s=0;s+seg<=want;s+=seg)vs.push(159.155*std(z.subarray(s,s+seg))/r.f);
+ const mu=vs.reduce((a,v)=>a+v,0)/vs.length,cv=vs.length>1?Math.sqrt(vs.reduce((a,v)=>a+(v-mu)**2,0)/vs.length)/mu*100:0;
+ // 기울기 흔들림: 회전 RMS → 각도·100mm당 높이차 ÷ 위아래 진폭
+ let rk=null;if(b.gyro&&now-b.gyroAt<3000){const zi=b.zA<0?2:b.zA,xi=b.zA<0?0:b.xA,yi=b.zA<0?1:b.yA,w=2*Math.PI*r.f;
+  const ax=b.gyro[xi]*Math.SQRT2/w,ay=b.gyro[yi]*Math.SQRT2/w,dh=Math.max(ax,ay)*Math.PI/180*1e5,za=r.v*Math.SQRT2/w*1000;rk={ax,ay,dh,pct:za>0?dh/za*100:0}}
+ if(DUTY[id])DUTY[id].done=true;
+ onData({id,rms:+r.v.toFixed(1),hz:+r.f.toFixed(2),x:Math.round(r.px),y:Math.round(r.py),h2:+r.h2.toFixed(1),cv:+cv.toFixed(1),rk:rk?+rk.pct.toFixed(0):null,rkd:rk,bat:c.bat,ms:Math.round(want/fs*1000)})}}
+setInterval(()=>{if(REMOTE)return;duty();measureTick()},500);
+// 배터리 절약: 측정 직전에만 센서·전송을 켜고(S1) 계산 후 끔(S0). 주기-측정시간이 5초 미만이면 계속 켜 둠
+const DUTY={};let CTLQ=Promise.resolve();
+function ctl(cmd){if(!BCTL)return;CTLQ=CTLQ.then(()=>BCTL.writeValue(new TextEncoder().encode(cmd))).catch(()=>{})}
+function duty(){if(LINK!="on"||!BDEV)return;const id=BDEV.name.replace("HG-CAP-","CAP-"),b=rbuf(id),now=Date.now(),d=DUTY[id]=DUTY[id]||{on:true};
+ const cont=S.cfg.period-S.cfg.meas<5;if(cont){if(!d.on){ctl("S1");d.on=true}return}
+ if(!d.on&&b.next-now<=(S.cfg.meas+1.5)*1000){ctl("S1");d.on=true}
+ if(d.on&&d.done){d.done=false;ctl("S0");d.on=false}}
+
+function onData(d){if(!d||!d.id)return;const now=Date.now();const c=S.caps[d.id]=S.caps[d.id]||{n:null,first:now};
+ Object.assign(c,{last:now,bat:d.bat,chg:+d.chg||0,cnt:(c.cnt||0)+1});
+ const n=c.n,M=n&&S.mach[n],L=M&&M.lot&&S.lots[M.lot];
+ recAdd({t:now,n:n||0,id:d.id,rms:d.rms,hz:d.hz,x:d.x,y:d.y,h2:d.h2,cv:d.cv,rk:d.rk,bat:d.bat,ms:d.ms||S.cfg.meas*1000,lot:M&&M.lot||"",spec:L?SN(L.spec):"",stage:L?L.stage:""});
+ if(!n||!M||c.chg)return;const m=M;
+ const vib=d.rms>=S.cfg.runRms&&d.hz>0;
+ if(vib!==!!m.run){m.run=vib;m.since=now;if(m.lot)hist(S.lots[m.lot],`${n}호기 ${vib?"가동 감지":"정지 감지"} (센서)`)}
+ if(vib){m.smp=(m.smp||[]).concat([[d.rms,d.hz]]).slice(-S.cfg.avgN);const avg=i=>m.smp.reduce((a,b)=>a+b[i],0)/m.smp.length;
+  m.rms=+avg(0).toFixed(1);m.hz=+avg(1).toFixed(1);m.x=d.x;m.y=d.y;m.h2=d.h2;m.cv=d.cv;m.rk=d.rkd||null;(m.log=m.log||[]).push([now,d.rms]);if(m.log.length>600)m.log.shift()}
+ m.raw=d;LASTRX=now;soon()}
+let LASTRX=0;
+
+// ---- 블루투스 연결 ----
+const dec=new TextDecoder();
+async function bleConnect(){if(!navigator.bluetooth){LINKMSG="이 컴퓨터에서 블루투스를 쓸 수 없습니다 (블루투스 켜기 또는 USB 동글 필요)";route();return}
+ try{stopSim();LINK="wait";LINKMSG="캡슐 찾는 중… (캡슐 전원을 켜 두세요)";route();
+  BDEV=await navigator.bluetooth.requestDevice({filters:[{namePrefix:"HG-CAP"}],optionalServices:[SVC]});
+  BDEV.addEventListener("gattserverdisconnected",onDisc);await bleOpen()}
+ catch(e){LINK="off";LINKMSG="캡슐을 찾지 못했습니다 — 캡슐을 켜고 [캡슐 연결]을 누르세요";route();if(APP&&APPCFG.autoConnect)setTimeout(()=>{if(LINK=="off")autoBle()},30000)}}
+window.autoBle=()=>{if(!REMOTE&&LINK!="on"&&LINK!="sim")bleConnect()};
+async function bleOpen(){LINK="wait";LINKMSG=BDEV.name+" 연결 중…";route();const sv=await BDEV.gatt.connect(),s=await sv.getPrimaryService(SVC);
+ const id=BDEV.name.replace("HG-CAP-","CAP-");S.caps[id]=S.caps[id]||{n:null,first:Date.now()};axesReset(rbuf(id));
+ const raw=await s.getCharacteristic(C_RAW);raw.addEventListener("characteristicvaluechanged",e=>onRaw(id,e.target.value));await raw.startNotifications();
+ try{const st=await s.getCharacteristic(C_STA);const ps=v=>{const t=dec.decode(v);const c=S.caps[id];for(const kv of t.split(";")){const [k,val]=kv.split("=");if(k=="bat")c.bat=+val;if(k=="ver")c.ver=val;if(k=="fs")c.fs=+val}};
+  st.addEventListener("characteristicvaluechanged",e=>ps(e.target.value));await st.startNotifications();ps(await st.readValue())}catch(e){}
+ BCTL=await s.getCharacteristic(C_CTL);await BCTL.writeValue(new TextEncoder().encode("S1"));DUTY[id]={on:true};rbuf(id).next=Date.now()+(S.cfg.meas+2)*1000;
+ LINK="on";LINKMSG=BDEV.name+" 연결됨";route()}
+let RETRY=0;function onDisc(){if(LINK=="off")return;LINK="wait";LINKMSG="연결 끊김 · 다시 연결 중…";route();setTimeout(async()=>{try{await bleOpen();RETRY=0}catch(e){if(++RETRY<40)onDisc();else{LINK="off";LINKMSG="연결 끊김 — [캡슐 연결]을 다시 누르세요";route()}}},3000)}
+function bleOff(){LINK="off";LINKMSG="연결 해제";try{BCTL&&BCTL.writeValue(new TextEncoder().encode("S0"))}catch(e){}setTimeout(()=>{try{BDEV&&BDEV.gatt.disconnect()}catch(e){}},200);route()}
+function bleBeep(){try{BCTL&&BCTL.writeValue(new TextEncoder().encode("B"))}catch(e){}}
+async function sendConf(){return LINK=="on"?"적용됨 (계산은 이 PC에서 합니다)":LINK=="sim"?"시뮬레이션에 적용됨":"저장됨"}
+// ---- 시뮬레이션: 가짜 캡슐이 800Hz 원본을 보냄 (같은 계산 경로로 시험) ----
+function startSim(){stopSim();LINK="sim";LINKMSG="시뮬레이션 — 가짜 캡슐 CAP-SIM";const id="CAP-SIM";S.caps[id]=S.caps[id]||{n:8,first:Date.now(),bat:100};if(S.caps[id].bat==null)S.caps[id].bat=100;
+ const b=rbuf(id);axesReset(b);b.next=Date.now()+2000;let idx=0,ph=0;
+ SIM=setInterval(()=>{const c=S.caps[id],m=c.n&&S.mach[c.n],st=m&&m.lot?SPEC[S.lots[m.lot].spec].st[S.lots[m.lot].stage]:null;
+  const f=st?st[1]:0,v=st?st[0]*(1+0.06*Math.sin(Date.now()/9000))-(c.n==8?6:0):0,A=v*f/159.155*Math.SQRT2;
+  const buf=new ArrayBuffer(10+36*6),dv=new DataView(buf);dv.setUint8(0,0xA1);dv.setUint8(1,36);dv.setUint32(2,idx,true);dv.setFloat32(6,800.1,true);
+  for(let i=0;i<36;i++){const t=(idx+i)/800.1,s=Math.sin(2*Math.PI*f*t),z=9.81+A*s+0.04*A*Math.sin(4*Math.PI*f*t)+(Math.random()-.5)*0.4,x=0.08*A*s+(Math.random()-.5)*.3,y=0.06*A*Math.cos(2*Math.PI*f*t)+(Math.random()-.5)*.3;
+   [x,y,z].forEach((q,k)=>dv.setInt16(10+i*6+k*2,Math.max(-32767,Math.min(32767,Math.round(q/9.80665*4096))),true))}
+  idx+=36;onRaw(id,dv);
+  if(idx%800<36){const g=new DataView(new ArrayBuffer(29));g.setUint8(0,0xB1);[A*0.9,A*0.6,A*0.2].forEach((q,k)=>g.setFloat32(1+k*4,q,true));onRaw(id,g);c.bat=Math.max(1,c.bat-100/12/3600)}},45);route()}
+function stopSim(){if(SIM)clearInterval(SIM);SIM=null;if(LINK=="sim"){LINK="off";LINKMSG=""}}
+function alertBox(t){$("mdb").innerHTML=`<div class="dh"><h2>알림</h2><button class="x" onclick="closeM()">×</button></div><div>${t}</div>`;$("md").classList.add("open")}
+const stamp=()=>{const d=new Date(),p=x=>String(x).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`};
+function dl(name,text){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+text],{type:"text/plain"}));a.download=name;a.click()}
+function batHtml(b){if(b==null)return"—";const c=b<20?"var(--bad)":b<40?"var(--warn)":"var(--ok)";return `<span class="bat"><i style="width:${b}%;background:${c}"></i></span> <b style="color:${c}">${Math.round(b)}%</b>`}
+const dt=t=>{const d=new Date(t),p=x=>String(x).padStart(2,"0");return `${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`};
+
+// ===== 페이지 이동 =====
+const PAGES={board:"상황판",caps:"캡슐 관리",machine:"호기별 정보",data:"측정 데이터",settings:"프로그램 설정"};
+let PG="board",PN=null;
+function route(){const h=(location.hash||"#/board").slice(2).split("/");PG=PAGES[h[0]]?h[0]:"board";if(window.REMOTE&&!["board","machine"].includes(PG))PG="board";PN=h[1]?+h[1]:PN;
+ document.querySelectorAll(".page").forEach(p=>p.style.display=p.id=="pg-"+PG?"":"none");
+ document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.p==PG));
+ document.body.dataset.pg=PG;linkBadge();
+ if(PG!="machine")OPEN=null;
+ if(PG=="board")render();else if(PG=="caps")renderCaps();else if(PG=="machine")renderMachine();else if(PG=="data")renderData();else if(PG=="settings")renderSettings()}
+window.addEventListener("hashchange",route);
+function linkBadge(){const b=$("lk");if(!b)return;b.textContent=LINK=="on"?"● 캡슐 연결됨":LINK=="sim"?"● 시뮬레이션":LINK=="wait"?"◌ 연결 중":"○ 캡슐 연결 안 됨";b.style.color=LINK=="on"?"var(--ok)":LINK=="sim"?"var(--acc)":LINK=="wait"?"var(--warn)":"var(--mut)"}
+function openM(n){location.hash="#/machine/"+n}
+
+// ===== 캡슐 관리 =====
+function renderCaps(){const ids=Object.keys(S.caps).sort();const c=$("pg-caps");
+ c.innerHTML=`<div class="pgrid">
+ <div class="box2"><h3>캡슐 연결</h3>
+  <div class="conn ${LINK}"><b>${LINK=="on"?"연결됨":LINK=="sim"?"시뮬레이션 중":LINK=="wait"?"연결 중":"연결 안 됨"}</b><span>${LINKMSG||"PC 블루투스로 캡슐에 직접 연결합니다"}</span></div>
+  <div class="row" style="margin-top:12px">${LINK=="on"||LINK=="wait"?'<button class="btn red" id="k_off">연결 해제</button>':'<button class="btn grn" id="k_on">🔵 캡슐 연결</button>'}
+  <button class="btn" id="k_sim">${SIM?"■ 시뮬레이션 끄기":"▶ 시뮬레이션 (캡슐 없이 시험)"}</button>${LINK=="on"?'<button class="btn" id="k_beep">🔔 삐 소리</button>':""}</div>
+  <div class="cap" style="margin-top:10px">캡슐 전원을 켜고 [캡슐 연결]을 누르면 <b>HG-CAP-…</b> 캡슐을 자동으로 찾아 연결합니다. 끊기면 자동으로 다시 연결합니다. 캡슐은 PC와 폰 중 <b>한 곳에만</b> 연결됩니다 (진동지기 앱을 끄고 연결하세요).</div></div>
+ <div class="box2"><h3>측정 · 전송 설정</h3>
+  <div class="rg3"><label>측정 시간 (초)<input id="k_meas" type="number" min="1" max="60" value="${S.cfg.meas}"><em>한 번 계산에 쓰는 진동 길이</em></label>
+  <label>측정 주기 (초)<input id="k_per" type="number" min="5" max="600" value="${S.cfg.period}"><em>몇 초마다 한 번 잴지</em></label>
+  <label>화면 갱신 (초)<input id="k_ui" type="number" min="1" max="60" value="${S.cfg.ui}"><em>상황판 화면을 새로 그리는 간격</em></label>
+  <label>평균 횟수<input id="k_avg" type="number" min="1" max="10" value="${S.cfg.avgN}"><em>화면 RMS = 최근 몇 회 평균</em></label>
+  <label>가동 판정 (mm/s 이상)<input id="k_run" type="number" step="0.5" value="${S.cfg.runRms}"><em>이보다 작으면 정지로 표시</em></label>
+  <div class="est">${estBat()}</div></div>
+  <div class="row" style="margin-top:10px"><button class="btn grn" id="k_save">저장</button><span id="k_msg" class="cap"></span></div></div>
+ </div>
+ <div class="box2" style="margin-top:14px"><h3>캡슐 목록</h3>
+ <table class="hist stbl"><tr><th>캡슐</th><th>붙인 호기</th><th>상태</th><th>배터리</th><th>받은 횟수</th><th>마지막 수신</th><th>최근 값</th><th></th></tr>
+ ${ids.length?ids.map(id=>{const k=S.caps[id],lost=!k.last||Date.now()-k.last>S.cfg.period*3000,m=k.n&&S.mach[k.n],r=m&&m.raw&&m.raw.id==id?m.raw:null;
+  return `<tr><td><b>${id}</b></td><td><select data-cap="${id}"><option value="">— 없음 —</option>${Object.keys(S.mach).map(n=>`<option value="${n}" ${k.n==n?"selected":""}>${n}호기</option>`).join("")}</select></td>
+  <td>${k.chg?"🔌 충전 중":lost?'<span style="color:var(--warn)">⚠ 끊김</span>':'<span style="color:var(--ok)">● 수신 중</span>'}</td><td>${batHtml(k.bat)}</td><td>${k.cnt||0}회</td><td>${k.last?ago(k.last):"—"}</td>
+  <td style="color:var(--mut)">${r?`${r.rms} mm/s · ${r.hz} Hz`:"—"}</td><td><a href="#/data" data-dn="${k.n||""}">데이터</a> · <a href="#" data-rm="${id}" style="color:var(--bad)">삭제</a></td></tr>`}).join(""):'<tr><td colspan="8" style="color:var(--mut);padding:16px 4px">아직 연결한 캡슐이 없습니다.</td></tr>'}</table></div>`;
+ const q=$("k_on");if(q)q.onclick=bleConnect;const bp=$("k_beep");if(bp)bp.onclick=bleBeep;const o=$("k_off");if(o)o.onclick=bleOff;
+ $("k_sim").onclick=()=>{SIM?(stopSim(),route()):startSim()};
+ $("k_save").onclick=async()=>{S.cfg.meas=Math.max(1,+$("k_meas").value||5);S.cfg.period=Math.max(S.cfg.meas+1,+$("k_per").value||20);S.cfg.ui=Math.max(1,+$("k_ui").value||5);S.cfg.avgN=Math.min(10,Math.max(1,+$("k_avg").value||3));S.cfg.runRms=+$("k_run").value||5;
+  save();setUiTimer();if(SIM)startSim();const msg=await sendConf();renderCaps();$("k_msg").textContent="저장됨 · "+msg};
+ ["k_meas","k_per"].forEach(i=>$(i).oninput=()=>{$("pg-caps").querySelector(".est").innerHTML=estBat(+$("k_meas").value,+$("k_per").value)});
+ c.querySelectorAll("[data-cap]").forEach(s=>s.onchange=()=>{const id=s.dataset.cap,v=s.value?+s.value:null;Object.keys(S.caps).forEach(k=>{if(v&&S.caps[k].n==v)S.caps[k].n=null});S.caps[id].n=v;save();renderCaps()});
+ c.querySelectorAll("[data-rm]").forEach(b=>b.onclick=e=>{e.preventDefault();delete S.caps[b.dataset.rm];save();renderCaps()});
+ c.querySelectorAll("[data-dn]").forEach(a=>a.onclick=()=>{DF.n=a.dataset.dn})}
+function estBat(me,pe){me=me||S.cfg.meas;pe=pe||S.cfg.period;const a=pe-me<5?1:Math.min(1,(me+1.5)/pe),avg=70*a+25*(1-a),h=200/avg;const c=h>=10?"var(--ok)":h>=7?"var(--warn)":"var(--bad)";
+ return `<span>예상 배터리 사용 시간 <b style="color:${c};font-size:20px">약 ${h.toFixed(0)}시간</b></span><span class="cap">${a<1?`측정할 때만 센서를 켬 (${Math.round(a*100)}% 시간)`:"계속 측정"} · 계산값 (측정 중 70mA·대기 25mA 가정). 실제 값은 측정 데이터 페이지의 '배터리 소모'로 확인</span>`}
+
+// ===== 호기별 정보 =====
+function renderMachine(){if(!PN)PN=8;const c=$("pg-machine");
+ c.innerHTML=`<div class="mlay"><div class="mlist">${Object.keys(S.mach).map(Number).map(n=>{const m=S.mach[n],[cl,msg]=status(n),L=m.lot&&S.lots[m.lot];
+  return `<a href="#/machine/${n}" class="mi ${n==PN?"on":""} ${cl}"><b>${n}호기</b><span>${L?SN(L.spec)+" · "+L.stage:"비어 있음"}</span><i>${msg}</i></a>`}).join("")}</div><div class="mbody" id="mdx"></div></div>`;
+ OPEN=PN;detailInto(PN)}
+
+// ===== 측정 데이터 =====
+let DF={n:"",range:"all",from:"",to:""};
+async function renderData(){const c=$("pg-data");const all=await recAll();
+ const now=Date.now(),rg={h1:36e5,h8:288e5,d1:864e5,all:Infinity}[DF.range]||Infinity;
+ let rows=all.filter(r=>(DF.n===""||r.n==DF.n)&&(DF.range=="custom"?(!DF.from||r.t>=+new Date(DF.from))&&(!DF.to||r.t<=+new Date(DF.to)):now-r.t<=rg));
+ rows.sort((a,b)=>a.t-b.t);const ns=[...new Set(all.map(r=>r.n))].sort((a,b)=>a-b);
+ const run=rows.filter(r=>r.rms>=S.cfg.runRms),st=k=>{const v=run.map(r=>r[k]).filter(x=>x!=null);if(!v.length)return null;const mu=v.reduce((a,b)=>a+b,0)/v.length,sd=Math.sqrt(v.reduce((a,b)=>a+(b-mu)**2,0)/v.length);return{mu,sd,min:Math.min(...v),max:Math.max(...v),cv:mu?sd/mu*100:0}};
+ const R=st("rms"),H=st("hz"),X=st("x"),Y=st("y"),H2=st("h2");
+ const span=rows.length>1?rows[rows.length-1].t-rows[0].t:0,exp=span?Math.floor(span/(S.cfg.period*1000))+1:rows.length,rate=exp?Math.min(100,rows.length/exp*100):0;
+ const bt=rows.filter(r=>r.bat!=null);let drain=null;if(bt.length>3){const t0=bt[0].t,xs=bt.map(r=>(r.t-t0)/36e5),ys=bt.map(r=>r.bat),mx=xs.reduce((a,b)=>a+b)/xs.length,my=ys.reduce((a,b)=>a+b)/ys.length;const sl=xs.reduce((a,x,i)=>a+(x-mx)*(ys[i]-my),0)/(xs.reduce((a,x)=>a+(x-mx)**2,0)||1);if(sl<0)drain=-sl}
+ const f=(o,k,d=1)=>o?o[k].toFixed(d):"—";
+ c.innerHTML=`<div class="filt"><label>호기<select id="d_n"><option value="">전체</option>${ns.map(n=>`<option value="${n}" ${DF.n==n?"selected":""}>${n?n+"호기":"호기 미지정"}</option>`).join("")}</select></label>
+ <label>기간<select id="d_r">${[["h1","최근 1시간"],["h8","최근 8시간"],["d1","최근 24시간"],["all","전체"],["custom","직접 지정"]].map(([v,l])=>`<option value="${v}" ${DF.range==v?"selected":""}>${l}</option>`).join("")}</select></label>
+ ${DF.range=="custom"?`<label>부터<input type="datetime-local" id="d_f" value="${DF.from}"></label><label>까지<input type="datetime-local" id="d_t" value="${DF.to}"></label>`:""}
+ <span style="margin-left:auto"></span><button class="btn" id="d_csv">⬇ CSV (엑셀)</button><button class="btn" id="d_rep">📄 보고용 요약 복사</button><button class="btn red" id="d_clr">기록 지우기</button></div>
+ ${rows.length?`<div class="g6">
+ ${kpi("측정 횟수",rows.length+"회",`${span?(span/36e5).toFixed(1)+"시간 동안":""} · 가동 중 ${run.length}회`)}
+ ${kpi("수신 성공률",rate.toFixed(0)+"%",`예상 ${exp}회 중 ${rows.length}회 (주기 ${S.cfg.period}초)`,rate>=95?"ok":rate>=80?"warn":"bad")}
+ ${kpi("평균 RMS",f(R,"mu")+" mm/s",`± ${f(R,"sd")} · 범위 ${f(R,"min")}~${f(R,"max")}`)}
+ ${kpi("RMS 변동",f(R,"cv")+"%","측정마다 흔들린 정도 (낮을수록 안정)",R&&R.cv<5?"ok":R&&R.cv<10?"warn":"bad")}
+ ${kpi("평균 주파수",f(H,"mu",2)+" Hz",`± ${f(H,"sd",2)}`)}
+ ${kpi("배터리 소모",drain?drain.toFixed(1)+" %/시간":"—",drain?`100% → 0% 약 <b>${(100/drain).toFixed(1)}시간</b>`:"데이터가 더 쌓이면 계산",drain?(100/drain>=12?"ok":100/drain>=9?"warn":"bad"):"")}
+ </div>
+ <div class="g2c">${chartBox("진동 속도 RMS (mm/s)",rows,"rms","#2f6fe4")}${chartBox("주파수 (Hz)",rows,"hz","#7a5af5")}${chartBox("옆 흔들림 X · Y (%)",rows,"x","#d93b33","y","#d4900f",20)}${chartBox("2배 진동 (%)",rows,"h2","#1f9d63",null,null,10)}${chartBox("배터리 (%)",rows,"bat","#14824f")}
+ <div class="box2"><h3>평균값 요약</h3><table class="hist"><tr><th></th><th>평균</th><th>표준편차</th><th>최소</th><th>최대</th></tr>${[["RMS mm/s",R],["주파수 Hz",H],["X/Z %",X],["Y/Z %",Y],["2배 진동 %",H2]].map(([l,o])=>`<tr><td>${l}</td><td><b>${f(o,"mu")}</b></td><td>${f(o,"sd")}</td><td>${f(o,"min")}</td><td>${f(o,"max")}</td></tr>`).join("")}</table></div></div>
+ <div class="box2" style="margin-top:14px"><h3>측정 기록 <span class="cap">(최근 300건)</span></h3><div class="tscroll"><table class="hist"><tr><th>시각</th><th>호기</th><th>캡슐</th><th>LOT</th><th>RMS</th><th>Hz</th><th>X%</th><th>Y%</th><th>2배%</th><th>안정도%</th><th>배터리</th></tr>
+ ${rows.slice(-300).reverse().map(r=>`<tr><td>${dt(r.t)}</td><td>${r.n||"—"}</td><td>${r.id}</td><td style="font-family:monospace">${r.lot||""}</td><td><b>${r.rms}</b></td><td>${r.hz}</td><td>${r.x??""}</td><td>${r.y??""}</td><td>${r.h2??""}</td><td>${r.cv??""}</td><td>${r.bat??""}%</td></tr>`).join("")}</table></div></div>`
+ :'<div class="box2" style="color:var(--mut)">이 조건의 측정 기록이 없습니다. 캡슐 관리에서 캡슐을 연결하거나 시뮬레이션을 켜세요.</div>'}`;
+ $("d_n").onchange=e=>{DF.n=e.target.value;renderData()};$("d_r").onchange=e=>{DF.range=e.target.value;renderData()};
+ if($("d_f")){$("d_f").onchange=e=>{DF.from=e.target.value;renderData()};$("d_t").onchange=e=>{DF.to=e.target.value;renderData()}}
+ $("d_csv").onclick=()=>dl("진동기록_"+stamp()+".csv",["시각,호기,캡슐,LOT,RMS mm/s,주파수 Hz,X/Z %,Y/Z %,2배 진동 %,안정도 %,배터리 %,측정 시간 ms"].concat(rows.map(r=>[new Date(r.t).toLocaleString("sv-SE"),r.n||"",r.id,r.lot||"",r.rms,r.hz,r.x??"",r.y??"",r.h2??"",r.cv??"",r.bat??"",r.ms??""].join(","))).join("\n"));
+ $("d_rep").onclick=()=>{const t=`[진동 측정 시험 요약]\n대상: ${DF.n?DF.n+"호기":"전체"} / 기간 ${rows.length?dt(rows[0].t)+" ~ "+dt(rows[rows.length-1].t):""} (${(span/36e5).toFixed(1)}시간)\n측정: 측정 시간 ${S.cfg.meas}초, 주기 ${S.cfg.period}초, 총 ${rows.length}회 (수신 성공률 ${rate.toFixed(0)}%)\n진동 속도 RMS: 평균 ${f(R,"mu")} mm/s ± ${f(R,"sd")} (변동 ${f(R,"cv")}%)\n주파수: 평균 ${f(H,"mu",2)} Hz ± ${f(H,"sd",2)}\n옆 흔들림: X ${f(X,"mu",0)}% / Y ${f(Y,"mu",0)}%, 2배 진동 ${f(H2,"mu")}%\n배터리: ${drain?drain.toFixed(1)+"%/시간 → 완충 시 약 "+(100/drain).toFixed(1)+"시간 사용":"계산 불가"}`;
+  navigator.clipboard.writeText(t).then(()=>alertBox("<pre style='white-space:pre-wrap;font-family:inherit'>"+t+"</pre><div class='cap'>클립보드에 복사됐습니다. 메일·보고서에 붙여넣으세요.</div>"),()=>alertBox("<pre style='white-space:pre-wrap;font-family:inherit'>"+t+"</pre>"))};
+ $("d_clr").onclick=()=>{$("mdb").innerHTML=`<div class="dh"><h2>측정 기록 지우기</h2><button class="x" onclick="closeM()">×</button></div><div>저장된 측정 기록 ${all.length}건을 모두 지웁니다. 먼저 CSV로 내려받아 두세요.</div><div class="row" style="margin-top:14px"><button class="btn red" id="d_yes">모두 지우기</button><button class="btn" onclick="closeM()">취소</button></div>`;$("md").classList.add("open");$("d_yes").onclick=()=>recClear().then(()=>{closeM();renderData()})}}
+function kpi(t,v,s,c){return `<div class="kp ${c||""}"><div class="mt">${t}</div><div class="kv2">${v}</div><div class="cap">${s}</div></div>`}
+function chartBox(title,rows,k,col,k2,col2,lim){const pts=rows.filter(r=>r[k]!=null);if(pts.length<2)return `<div class="box2"><h3>${title}</h3><div class="cap">데이터 부족</div></div>`;
+ const W=560,H=170,t0=pts[0].t,t1=pts[pts.length-1].t||t0+1,vals=pts.map(r=>r[k]).concat(k2?pts.map(r=>r[k2]??0):[]).concat(lim?[lim]:[]),lo=Math.min(...vals),hi=Math.max(...vals),pad=(hi-lo)*.12||1,a=lo-pad,b=hi+pad;
+ const X=t=>36+(t-t0)/((t1-t0)||1)*(W-46),Y=v=>H-22-(v-a)/(b-a)*(H-34),line=(kk,c)=>`<polyline fill="none" stroke="${c}" stroke-width="1.8" points="${pts.filter(r=>r[kk]!=null).map(r=>X(r.t).toFixed(1)+","+Y(r[kk]).toFixed(1)).join(" ")}"/>`;
+ const ticks=[a+pad,(a+b)/2,b-pad];
+ return `<div class="box2"><h3>${title}${k2?` <span class="cap"><b style="color:${col}">━ X</b> <b style="color:${col2}">━ Y</b></span>`:""}</h3><svg viewBox="0 0 ${W} ${H}" width="100%">
+ ${ticks.map(v=>`<line x1="36" x2="${W-10}" y1="${Y(v)}" y2="${Y(v)}" stroke="#eef1f5"/><text x="2" y="${Y(v)+4}" font-size="11" fill="#9aa4ae">${v.toFixed(v<10?1:0)}</text>`).join("")}
+ ${lim?`<line x1="36" x2="${W-10}" y1="${Y(lim)}" y2="${Y(lim)}" stroke="#d93b33" stroke-dasharray="5 4"/>`:""}${line(k,col)}${k2?line(k2,col2):""}
+ <text x="36" y="${H-4}" font-size="11" fill="#9aa4ae">${dt(t0)}</text><text x="${W-10}" y="${H-4}" font-size="11" fill="#9aa4ae" text-anchor="end">${dt(t1)}</text></svg></div>`}
+let RT=null;function soon(){if(RT||DRAG||DRAGLOT)return;RT=setTimeout(()=>{RT=null;if(PG=="board")render();else if(PG=="caps")renderCaps()},400)}
+let UIT=null;function setUiTimer(){clearInterval(UIT);UIT=setInterval(()=>{if(DRAG||DRAGLOT)return;if(PG=="board")render();else if(PG=="caps"&&!document.activeElement.matches("input,select"))renderCaps()},S.cfg.ui*1000)}
+
+const tick=()=>{const d=new Date();$("clk").textContent=d.toLocaleDateString("ko-KR")+" "+d.toLocaleTimeString("ko-KR",{hour12:false})};tick();setInterval(tick,1000);
+
+// ===== 알림 (윈도우 팝업 + 경고음) =====
+let ALPREV=new Set(),BEEPING=false,ACK=false,BEEPT=null,ACTX=null;
+function beep(){try{ACTX=ACTX||new AudioContext();[0,0.25].forEach(d=>{const o=ACTX.createOscillator(),g=ACTX.createGain();o.frequency.value=1500;g.gain.value=0.25;o.connect(g);g.connect(ACTX.destination);o.start(ACTX.currentTime+d);o.stop(ACTX.currentTime+d+0.15)})}catch(e){}}
+function alertWatch(al){if(REMOTE)return;const now=new Set(al);const red=al.filter(a=>a.startsWith("🔴"));
+ for(const a of al)if(!ALPREV.has(a)&&(a.startsWith("🔴")||a.includes("센서 신호 끊김")||a.includes("배터리"))){if(APP)hg.notify("H.G 진동기 상황판",a.replace(/^\S+ /,""));if(a.startsWith("🔴"))ACK=false}
+ ALPREV=now;const want=red.length>0&&!ACK&&APPCFG.beep!==false;
+ if(want&&!BEEPING){BEEPING=true;beep();BEEPT=setInterval(beep,(APPCFG.beepRepeat||30)*1000)}
+ if(!want&&BEEPING){BEEPING=false;clearInterval(BEEPT)}
+ const b=$("ackb");if(b)b.style.display=red.length&&!ACK?"":"none"}
+function ackAlarm(){ACK=true;if(BEEPING){BEEPING=false;clearInterval(BEEPT)}const b=$("ackb");if(b)b.style.display="none"}
+
+// ===== 프로그램 설정 (윈도우 프로그램에서만) =====
+async function renderSettings(){const c=$("pg-settings");if(!APP){c.innerHTML='<div class="box2">윈도우 프로그램에서만 쓰는 페이지입니다.</div>';return}
+ const cf=await hg.getConfig(),inf=await hg.info();APPCFG=cf;
+ const sw=(k,t,d)=>`<div class="srow"><div><b>${t}</b><span>${d}</span></div><label class="sw"><input type="checkbox" data-k="${k}" ${cf[k]?"checked":""}><i></i></label></div>`;
+ const nm=(k,t,d,u)=>`<div class="srow"><div><b>${t}</b><span>${d}</span></div><div><input type="number" data-n="${k}" value="${cf[k]}" style="width:90px;text-align:center;font-weight:800"> ${u}</div></div>`;
+ const urls=inf.addrs.map(a=>`http://${a.ip}:${inf.port||cf.port}`);
+ c.innerHTML=`<div class="g2s">
+ <div class="box2"><h3>실행</h3>${sw("autoStart","윈도우 시작 시 자동 실행","PC를 켜면 상황판이 저절로 열립니다")}${sw("fullscreen","전체 화면","F11로도 켜고 끔 · Esc로 해제")}${sw("trayOnClose","창을 닫으면 작업표시줄 아이콘으로 숨기기","닫아도 측정·저장은 계속됩니다 · 끄려면 아이콘 우클릭 → 프로그램 끄기")}${sw("preventSleep","절전 모드 막기","프로그램이 켜져 있는 동안 화면이 꺼지지 않게 합니다")}</div>
+ <div class="box2"><h3>캡슐 연결</h3>${sw("autoConnect","켜면 자동 연결","프로그램을 켜면 버튼 없이 캡슐(HG-CAP-…)에 연결")}${nm("lostSec","끊김 경고까지","이 시간 동안 받은 값이 없으면 경고","초")}
+  <div class="srow"><div><b>다른 캡슐로 바꾸기</b><span>기억한 캡슐을 지우고 다음 연결 때 새로 찾습니다</span></div><button class="btn" id="st_forget">캡슐 다시 찾기</button></div></div>
+ <div class="box2"><h3>원격 보기 (같은 Wi-Fi의 PC·폰·TV)</h3>${sw("remote","원격 보기 켜기","다른 기기 브라우저에서 상황판 화면만 봅니다 (보기 전용)")}${nm("port","포트","보통 8000","")}
+  <div class="srow"><div><b>접속 주소</b><span>다른 기기 크롬 주소창에 입력 · 지금 보는 기기 ${inf.viewers}대</span></div><div class="urls">${inf.remote?urls.map(u=>`<code>${u}</code>`).join("")||"<span>Wi-Fi 연결 없음</span>":"<span>꺼짐</span>"}</div></div>
+  <div class="cap">안 열리면: 다른 기기에서 <b>ping ${inf.addrs[0]?inf.addrs[0].ip:"(이 PC 주소)"}</b> 확인 · 처음 켤 때 윈도우 방화벽 창이 뜨면 <b>"허용"</b>을 누르세요.</div></div>
+ <div class="box2"><h3>알림</h3>${sw("notify","윈도우 알림","RMS 이상·센서 끊김·배터리 부족 때 오른쪽 아래 팝업")}${sw("beep","경고음","🔴 이상이면 [🔕 확인]을 누를 때까지 소리")}${nm("beepRepeat","경고음 반복 간격","","초")}${nm("batWarn","배터리 경고 기준","","%")}</div>
+ <div class="box2"><h3>저장</h3><div class="srow"><div><b>기록 폴더</b><span><code>${inf.folder}</code><br>측정값은 날짜별 CSV(엑셀)로, 하루 한 번 전체 백업(백업 폴더)으로 저장됩니다</span></div><button class="btn" id="st_folder">폴더 열기</button></div>
+  <div class="srow"><div><b>백업</b><span>LOT·정반·호기·설정 전체</span></div><div><button class="btn" id="st_bak">⬇ 내보내기</button> <label class="btn">⬆ 불러오기<input type="file" id="st_res" accept=".json" style="display:none"></label></div></div></div>
+ <div class="box2"><h3>데이터 초기화</h3><div class="srow"><div><b>예시 데이터로 채우기</b><span>화면 연습용 (지금 내용은 지워짐)</span></div><button class="btn" id="st_demo">예시 채우기</button></div>
+  <div class="srow"><div><b>모두 비우기</b><span>LOT·이력을 지우고 1~17호기 빈 상태로 (측정 기록 CSV는 남음)</span></div><button class="btn red" id="st_clear">모두 비우기</button></div></div>
+ </div><div class="cap" style="margin-top:10px">프로그램 v${inf.version}</div>`;
+ c.querySelectorAll("[data-k]").forEach(i=>i.onchange=async()=>{APPCFG=await hg.setConfig({[i.dataset.k]:i.checked});renderSettings()});
+ c.querySelectorAll("[data-n]").forEach(i=>i.onchange=async()=>{APPCFG=await hg.setConfig({[i.dataset.n]:+i.value});renderSettings()});
+ $("st_forget").onclick=()=>{hg.bleForget();bleOff();setTimeout(bleConnect,800)};$("st_folder").onclick=()=>hg.openFolder();
+ $("st_bak").onclick=()=>dl("상황판_백업_"+stamp()+".json",JSON.stringify(S));
+ $("st_res").onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{try{const v=JSON.parse(t);if(v.mach){S=v;save();location.reload()}}catch(er){alertBox("백업 파일을 읽을 수 없습니다")}})};
+ const ask=(t,fn)=>{$("mdb").innerHTML=`<div class="dh"><h2>${t}</h2><button class="x" onclick="closeM()">×</button></div><div class="row" style="margin-top:6px"><button class="btn red" id="yes">확인</button><button class="btn" onclick="closeM()">취소</button></div>`;$("md").classList.add("open");$("yes").onclick=()=>{closeM();fn()}};
+ $("st_demo").onclick=()=>ask("예시 데이터로 채울까요? 지금 LOT·이력이 지워집니다",()=>{const caps=S.caps,cfg=S.cfg;S=demo();S.caps=caps;S.cfg=cfg;save();location.hash="#/board";route()});
+ $("st_clear").onclick=()=>ask("모두 비울까요? LOT·이력이 지워집니다",()=>{const caps=S.caps,cfg=S.cfg;S=emptyState();S.caps=caps;S.cfg=cfg;save();location.hash="#/board";route()})}
+
+document.body.classList.toggle("remote",REMOTE);document.body.classList.toggle("app",APP);
+if(!APP)$("navset").style.display="none";
+if(APP)hg.getConfig().then(c=>{APPCFG=c;window.APPCFG_BAT=c.batWarn});
+if(REMOTE){const es=new EventSource("/events");es.onmessage=e=>{try{const v=JSON.parse(e.data);if(v&&v.mach){S=v;if(PG=="board")render();else if(PG=="machine")renderMachine()}}catch(er){}};
+ $("lk").removeAttribute("href");setInterval(()=>{LINK=Object.values(S.caps||{}).some(c=>c.last&&Date.now()-c.last<lostMs())?"on":"off";linkBadge()},3000)}
+setUiTimer();
+route();
+</script></body></html>
